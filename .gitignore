@@ -5,3 +5,13 @@ dist/
 *.log
 .DS_Store
 Thumbs.db
+
+# Backend
+backend/data/
+backend/uploads/
+backend/deployment.json
+backend/EvidenceRegistryABI.json
+
+# Hardhat
+contracts/artifacts/
+contracts/cache/
