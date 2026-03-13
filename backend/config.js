@@ -1,42 +1,49 @@
-const path = require("path");
+const path = require('path');
 
-// Load .env if present (optional dependency)
-try { require("dotenv").config({ path: path.join(__dirname, ".env") }); } catch (_) { /* dotenv not installed — using defaults */ }
+// Centralised configuration for the backend API.
+// Reads from environment variables with sensible MVP defaults.
+
+const env = process.env;
+
+function boolEnv(name, fallback = false) {
+  const v = env[name];
+  if (v === undefined) return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(String(v).toLowerCase());
+}
 
 module.exports = {
-    port: parseInt(process.env.PORT, 10) || 3001,
-    nodeEnv: process.env.NODE_ENV || "development",
+  env: env.NODE_ENV || 'development',
 
-    blockchain: {
-        url: process.env.BLOCKCHAIN_URL || "http://127.0.0.1:8545",
-    },
+  // HTTP server
+  port: Number(env.PORT) || 3001,
+  corsOrigin: env.CORS_ORIGIN || 'http://localhost:5173',
 
-    jwt: {
-        secret: process.env.JWT_SECRET || "chainguard-dev-secret-change-in-production",
-        expiresIn: process.env.JWT_EXPIRES_IN || "24h",
-    },
+  // Blockchain / Hardhat
+  chainRpcUrl: env.CHAIN_RPC_URL || 'http://127.0.0.1:8545',
+  contractAddress: env.CONTRACT_ADDRESS || '', // populated from contracts deployment.json in practice
 
-    db: {
-        path: process.env.DB_PATH
-            ? path.resolve(process.env.DB_PATH)
-            : path.join(__dirname, "data", "chainguard.db"),
-    },
+  // JWT auth (MVP: symmetric HS256)
+  jwt: {
+    secret: env.JWT_SECRET || 'dev-only-secret-change-me',
+    issuer: env.JWT_ISSUER || 'chainguard.local',
+    audience: env.JWT_AUDIENCE || 'chainguard.officers',
+    requiredRole: env.JWT_REQUIRED_ROLE || 'first_responder',
+  },
 
-    cors: {
-        origins: (process.env.CORS_ORIGINS || "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173").split(","),
-    },
+  // SQLite
+  sqlitePath:
+    env.SQLITE_PATH ||
+    path.join(__dirname, '..', 'data', 'chainguard.db'),
 
-    storage: {
-        uploadDir: process.env.UPLOAD_DIR
-            ? path.resolve(process.env.UPLOAD_DIR)
-            : path.join(__dirname, "uploads"),
-        maxFileSize: parseInt(process.env.MAX_FILE_SIZE, 10) || 50 * 1024 * 1024, // 50 MB
-    },
+  // Rate limiting (per API contract)
+  rateLimits: {
+    submitPerMin: Number(env.RL_SUBMIT_PER_MIN) || 30,
+    uploadPerMin: Number(env.RL_UPLOAD_PER_MIN) || 10,
+    verifyPerMin: Number(env.RL_VERIFY_PER_MIN) || 60,
+    listPerMin: Number(env.RL_LIST_PER_MIN) || 120,
+  },
 
-    rateLimit: {
-        submit:  { windowMs: 60_000, max: 30 },
-        upload:  { windowMs: 60_000, max: 10 },
-        verify:  { windowMs: 60_000, max: 60 },
-        general: { windowMs: 60_000, max: 120 },
-    },
+  // Misc toggles
+  enableRequestLogging: boolEnv('ENABLE_REQUEST_LOGGING', true),
 };
+

@@ -1,65 +1,47 @@
-/**
- * Storage Service — Mock IPFS / Decentralized Storage
- *
- * In production, this would pin files to IPFS via Pinata or Web3.Storage.
- * For the MVP, files are stored locally in an /uploads directory and
- * given a CID-like content-addressed identifier.
- */
-const crypto = require("crypto");
-const fs = require("fs");
-const path = require("path");
-const config = require("../config");
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 
-const UPLOAD_DIR = config.storage.uploadDir;
+// Mock storage service that writes encrypted files to disk and
+// returns an IPFS-like CID and public URL.
 
-// Ensure uploads dir exists
-if (!fs.existsSync(UPLOAD_DIR)) {
-    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+const STORAGE_ROOT = path.join(__dirname, '..', 'storage');
+
+function ensureStorageRoot() {
+  if (!fs.existsSync(STORAGE_ROOT)) {
+    fs.mkdirSync(STORAGE_ROOT, { recursive: true });
+  }
 }
 
-/**
- * Store a file buffer and return a mock IPFS CID.
- * The CID is derived from the SHA-256 of the file content.
- */
-async function store(buffer, originalName) {
-    // Generate a content-based identifier (like IPFS CID)
-    const hash = crypto.createHash("sha256").update(buffer).digest("hex");
-    const cid = `Qm${hash.slice(0, 44)}`; // Mock CID format
+async function storeEncryptedFile(fileBuffer, { evidenceId, iv, mimeType }) {
+  ensureStorageRoot();
 
-    // Determine file extension
-    const ext = path.extname(originalName) || ".bin";
-    const filename = `${cid}${ext}`;
-    const filepath = path.join(UPLOAD_DIR, filename);
+  const hash = crypto.createHash('sha256');
+  hash.update(fileBuffer);
+  const cid = hash.digest('hex'); // not real IPFS, but deterministic
 
-    // Write file
-    fs.writeFileSync(filepath, buffer);
+  const fileName = `${cid}.bin`;
+  const filePath = path.join(STORAGE_ROOT, fileName);
 
-    return {
-        cid,
-        url: `http://localhost:3001/uploads/${filename}`,
-        filepath,
-        size: buffer.length,
-    };
+  await fs.promises.writeFile(filePath, fileBuffer);
+
+  const stats = await fs.promises.stat(filePath);
+
+  // In real deployment, this would be an IPFS gateway URL
+  const storageUrl = `https://gateway.example.invalid/ipfs/${cid}`;
+
+  return {
+    evidenceId,
+    storageCid: cid,
+    storageUrl,
+    fileSizeBytes: stats.size,
+    uploadedAt: new Date().toISOString(),
+    iv,
+    mimeType,
+  };
 }
 
-/**
- * Retrieve a stored file by its CID.
- */
-async function retrieve(cid) {
-    const files = fs.readdirSync(UPLOAD_DIR);
-    const match = files.find((f) => f.startsWith(cid));
+module.exports = {
+  storeEncryptedFile,
+};
 
-    if (!match) {
-        return null;
-    }
-
-    const filepath = path.join(UPLOAD_DIR, match);
-    return {
-        cid,
-        buffer: fs.readFileSync(filepath),
-        filename: match,
-        size: fs.statSync(filepath).size,
-    };
-}
-
-module.exports = { store, retrieve };

@@ -3,14 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "compile": "npx hardhat compile",
-    "test": "npx hardhat test",
-    "node": "npx hardhat node",
-    "deploy": "npx hardhat run scripts/deploy.js --network localhost",
-    "deploy:local": "npx hardhat run scripts/deploy.js --network localhost"
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "node": "hardhat node",
+    "deploy:local": "hardhat run scripts/deploy.js --network localhost"
   },
   "devDependencies": {
-    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
-    "hardhat": "^2.19.0"
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.22.5"
   }
 }
+

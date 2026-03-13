@@ -25,19 +25,7 @@ const headerTime     = $('#headerTime');
 
 // ──── CONSTANTS ────
 const RING_CIRCUMFERENCE = 2 * Math.PI * 52; // r = 52 in the SVG
-const SIMULATED_RECORDS = [
-  // Pre-seeded "anchored" records for demo purposes
-  {
-    fileHash: null, // will be set when an image is hashed
-    evidenceId: 'EV-2026-0847A',
-    transactionHash: '0x7f3a8b…e4d21c9f',
-    blockNumber: 18_422_091,
-    anchoredAt: '2026-03-12T09:14:33.000Z',
-    officerId: 'NYPD-4821',
-    latitude: 40.7128,
-    longitude: -74.0060
-  }
-];
+const VERIFY_ENDPOINT = 'http://localhost:3001/api/evidence/verify';
 
 // ──── HEADER CLOCK ────
 function updateClock() {
@@ -173,14 +161,17 @@ async function processFile(file) {
   hashOutput.classList.remove('hidden');
   hashValue.textContent = hash;
 
-  // Simulate blockchain verification
-  await sleep(2200);
+  // Real blockchain verification via backend API
+  let record = null;
+  try {
+    record = await verifyWithBackend(file, hash);
+  } catch (err) {
+    console.error('Verification error:', err);
+  }
 
   dropzone.classList.remove('verifying');
   showState('default');
 
-  // Check against "ledger"
-  const record = findOnLedger(hash);
   showResult(record, hash);
 }
 
@@ -227,56 +218,39 @@ async function hashFileStreaming(file, onProgress) {
   });
 }
 
-// ──── LEDGER LOOKUP (MOCK) ────
-// In production, this would call POST /api/evidence/verify
-// For the MVP demo, we simulate 40% match rate using a local "ledger"
-let hashLedger = new Map();
+// ──── LEDGER LOOKUP (REAL BACKEND) ────
+async function verifyWithBackend(file, hash) {
+  const formData = new FormData();
+  formData.append('file', file, file.name);
 
-// Seed a few demo hashes (these won't match real files, but we add dynamic entries)
-function findOnLedger(hash) {
-  // Check if this hash was previously "anchored" in this session
-  if (hashLedger.has(hash)) {
-    return hashLedger.get(hash);
+  const response = await fetch(VERIFY_ENDPOINT, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Verify request failed with status ${response.status}`);
   }
 
-  // Simulate ~40% match for demo
-  const matchProbability = simpleHashToNumber(hash) % 100;
-  if (matchProbability < 40) {
-    const record = {
-      fileHash: hash,
-      evidenceId: `EV-2026-${hash.slice(0, 4).toUpperCase()}`,
-      transactionHash: `0x${hash.slice(0, 8)}…${hash.slice(-8)}`,
-      blockNumber: 18_000_000 + parseInt(hash.slice(0, 6), 16) % 500_000,
-      anchoredAt: randomPastDate(),
-      officerId: randomOfficer(),
-      latitude: 40.7128 + (parseInt(hash.slice(6, 10), 16) % 100) / 10000,
-      longitude: -74.0060 + (parseInt(hash.slice(10, 14), 16) % 100) / 10000
-    };
-    hashLedger.set(hash, record);
-    return record;
+  const payload = await response.json();
+
+  // No match / error envelope
+  if (!payload.success || !payload.verified || !payload.data || !payload.data.match) {
+    return null;
   }
 
-  return null;
-}
+  const rec = payload.data.record || {};
+  const meta = rec.metadata || {};
 
-function simpleHashToNumber(hash) {
-  let n = 0;
-  for (let i = 0; i < hash.length; i++) n = (n + hash.charCodeAt(i)) % 1000;
-  return n;
-}
-
-function randomPastDate() {
-  const daysAgo = Math.floor(Math.random() * 90) + 1;
-  const d = new Date();
-  d.setDate(d.getDate() - daysAgo);
-  return d.toISOString();
-}
-
-function randomOfficer() {
-  const depts = ['NYPD', 'LAPD', 'CPD', 'MPD', 'DPD'];
-  const dept = depts[Math.floor(Math.random() * depts.length)];
-  const badge = Math.floor(1000 + Math.random() * 9000);
-  return `${dept}-${badge}`;
+  return {
+    evidenceId: rec.evidenceId,
+    transactionHash: rec.transactionHash,
+    blockNumber: rec.blockNumber,
+    anchoredAt: rec.anchoredAt,
+    officerId: meta.officerId || rec.officerId || 'UNKNOWN',
+    latitude: typeof meta.latitude === 'number' ? meta.latitude : (rec.latitude || 0),
+    longitude: typeof meta.longitude === 'number' ? meta.longitude : (rec.longitude || 0),
+  };
 }
 
 // ──── UI STATE MANAGEMENT ────
@@ -365,8 +339,19 @@ btnReset.addEventListener('click', () => {
 // ──── DOWNLOAD REPORT (MOCK) ────
 btnDownloadReport.addEventListener('click', () => {
   const hash = hashValue.textContent;
-  const record = hashLedger.get(hash);
-  if (!record) return;
+  // Report generation now relies on the last shown record in the UI;
+  // if there is no match, there is nothing to export.
+  if (resultMatch.classList.contains('hidden')) return;
+
+  const record = {
+    evidenceId: $('#detailEvidenceId').textContent,
+    transactionHash: $('#detailTxHash').textContent,
+    blockNumber: Number($('#detailBlock').textContent.replace(/,/g, '')) || 0,
+    anchoredAt: $('#detailTimestamp').textContent,
+    officerId: $('#detailOfficer').textContent,
+    latitude: 0,
+    longitude: 0,
+  };
 
   const report = `
 ═══════════════════════════════════════════

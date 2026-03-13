@@ -1,21 +1,28 @@
 {
-    "name": "chainguard-backend",
-    "version": "1.0.0",
-    "private": true,
-    "type": "commonjs",
-    "scripts": {
-        "dev": "node server.js",
-        "start": "node server.js",
-        "test:e2e": "node test/e2e.js"
-    },
-    "dependencies": {
-        "cors": "^2.8.5",
-        "dotenv": "^16.3.1",
-        "ethers": "^6.9.0",
-        "express": "^4.18.2",
-        "express-rate-limit": "^7.1.4",
-        "jsonwebtoken": "^9.0.2",
-        "multer": "^1.4.5-lts.1",
-        "uuid": "^9.0.0"
-    }
+  "name": "chainguard-backend",
+  "version": "1.0.0",
+  "description": "ChainGuard Express API server for evidence anchoring and verification",
+  "main": "server.js",
+  "scripts": {
+    "dev": "nodemon server.js",
+    "start": "node server.js",
+    "test": "mocha \"test/**/*.js\""
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.1.5",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "multer": "^1.4.5-lts.1",
+    "ethers": "^6.13.2"
+  },
+  "devDependencies": {
+    "mocha": "^10.4.0",
+    "supertest": "^7.0.0",
+    "nodemon": "^3.1.0"
+  }
 }
+

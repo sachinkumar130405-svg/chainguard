@@ -1,57 +1,50 @@
-const hre = require("hardhat");
-const fs = require("fs");
-const path = require("path");
+const fs = require('fs');
+const path = require('path');
 
 async function main() {
-    console.log("🚀 Deploying EvidenceRegistry...\n");
+  const EvidenceRegistry = await ethers.getContractFactory('EvidenceRegistry');
+  const contract = await EvidenceRegistry.deploy();
+  await contract.deployed();
 
-    const EvidenceRegistry = await hre.ethers.getContractFactory("EvidenceRegistry");
-    const registry = await EvidenceRegistry.deploy();
+  console.log('EvidenceRegistry deployed to:', contract.address);
 
-    await registry.waitForDeployment();
-    const address = await registry.getAddress();
+  const deployment = {
+    address: contract.address,
+    abi: (await artifacts.readArtifact('EvidenceRegistry')).abi,
+  };
 
-    console.log(`✅ EvidenceRegistry deployed to: ${address}`);
-    console.log(`   Network: ${hre.network.name}`);
-    console.log(`   Chain ID: ${(await hre.ethers.provider.getNetwork()).chainId}\n`);
+  const outDir = path.join(__dirname, '..');
+  const backendContractsDir = path.join(
+    __dirname,
+    '..',
+    '..',
+    'backend',
+    'contracts',
+  );
 
-    // Write deployment info to a shared file the backend can read
-    const deploymentInfo = {
-        contractAddress: address,
-        network: hre.network.name,
-        chainId: Number((await hre.ethers.provider.getNetwork()).chainId),
-        deployedAt: new Date().toISOString(),
-    };
+  if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+  if (!fs.existsSync(backendContractsDir)) {
+    fs.mkdirSync(backendContractsDir, { recursive: true });
+  }
 
-    const outDir = path.join(__dirname, "..", "..", "backend");
-    if (!fs.existsSync(outDir)) {
-        fs.mkdirSync(outDir, { recursive: true });
-    }
+  fs.writeFileSync(
+    path.join(outDir, 'deployment.json'),
+    JSON.stringify(deployment, null, 2),
+  );
 
-    fs.writeFileSync(
-        path.join(outDir, "deployment.json"),
-        JSON.stringify(deploymentInfo, null, 2)
-    );
-    console.log(`📄 Deployment info written to backend/deployment.json`);
+  fs.writeFileSync(
+    path.join(backendContractsDir, 'deployment.json'),
+    JSON.stringify(deployment, null, 2),
+  );
 
-    // Also copy the ABI for the backend
-    const artifactPath = path.join(
-        __dirname, "..", "artifacts", "contracts",
-        "EvidenceRegistry.sol", "EvidenceRegistry.json"
-    );
-
-    // ABI will be available after compile; we'll copy it if it exists
-    if (fs.existsSync(artifactPath)) {
-        const artifact = JSON.parse(fs.readFileSync(artifactPath, "utf8"));
-        fs.writeFileSync(
-            path.join(outDir, "EvidenceRegistryABI.json"),
-            JSON.stringify(artifact.abi, null, 2)
-        );
-        console.log(`📄 Contract ABI written to backend/EvidenceRegistryABI.json`);
-    }
+  fs.writeFileSync(
+    path.join(backendContractsDir, 'EvidenceRegistry.abi.json'),
+    JSON.stringify(deployment.abi, null, 2),
+  );
 }
 
 main().catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
+  console.error(error);
+  process.exitCode = 1;
 });
+

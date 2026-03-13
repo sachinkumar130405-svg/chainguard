@@ -1,21 +1,32 @@
-/**
- * Hashing Service — Server-side SHA-256 utilities.
- */
-const crypto = require("crypto");
+const crypto = require('crypto');
 
-/** Compute SHA-256 of a Buffer. Returns hex string. */
-function sha256(buffer) {
-    return crypto.createHash("sha256").update(buffer).digest("hex");
+// Server-side SHA-256 hashing service used by the /verify endpoint.
+
+function hashBuffer(buffer) {
+  const hash = crypto.createHash('sha256');
+  hash.update(buffer);
+  return hash.digest('hex');
 }
 
-/** Compute SHA-256 of a UTF-8 string. Returns hex string. */
-function sha256String(str) {
-    return crypto.createHash("sha256").update(str).digest("hex");
+function hashStream(readable) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+
+    readable.on('data', (chunk) => hash.update(chunk));
+    readable.on('end', () => {
+      try {
+        const digest = hash.digest('hex');
+        resolve(digest);
+      } catch (err) {
+        reject(err);
+      }
+    });
+    readable.on('error', reject);
+  });
 }
 
-/** Validate that a string is a 64-char lowercase hex hash. */
-function isValidHash(hash) {
-    return typeof hash === "string" && /^[a-f0-9]{64}$/.test(hash);
-}
+module.exports = {
+  hashBuffer,
+  hashStream,
+};
 
-module.exports = { sha256, sha256String, isValidHash };

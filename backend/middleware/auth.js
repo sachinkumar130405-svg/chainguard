@@ -1,49 +1,46 @@
-/**
- * JWT Authentication Middleware.
- *
- * Verifies the Bearer token from the Authorization header and
- * attaches the decoded officer payload to req.officer.
- */
-const jwt = require("jsonwebtoken");
-const config = require("../config");
+const jwt = require('jsonwebtoken');
+const config = require('../config');
 
-function authenticate(req, res, next) {
-    const authHeader = req.headers.authorization;
+// JWT authentication middleware for mutation endpoints.
+// Expects a Bearer token and attaches the decoded payload to req.user.
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        return res.status(401).json({
-            success: false,
-            error: {
-                code: "UNAUTHORIZED",
-                message: "Invalid or expired authentication token",
-            },
-        });
-    }
-
-    const token = authHeader.split(" ")[1];
-
-    try {
-        const decoded = jwt.verify(token, config.jwt.secret);
-        req.officer = decoded;
-        next();
-    } catch (err) {
-        return res.status(401).json({
-            success: false,
-            error: {
-                code: "UNAUTHORIZED",
-                message: "Invalid or expired authentication token",
-            },
-        });
-    }
-}
-
-/**
- * Generate a signed JWT (useful for development / testing).
- */
-function generateToken(payload) {
-    return jwt.sign(payload, config.jwt.secret, {
-        expiresIn: config.jwt.expiresIn,
+function authMiddleware(req, res, next) {
+  const header = req.headers['authorization'] || req.headers['Authorization'];
+  if (!header || !header.startsWith('Bearer ')) {
+    return res.status(401).json({
+      success: false,
+      error: { code: 'UNAUTHORIZED', message: 'Missing Bearer token' },
     });
+  }
+
+  const token = header.slice('Bearer '.length);
+
+  try {
+    const payload = jwt.verify(token, config.jwt.secret, {
+      issuer: config.jwt.issuer,
+      audience: config.jwt.audience,
+    });
+
+    if (
+      config.jwt.requiredRole &&
+      payload.role &&
+      payload.role !== config.jwt.requiredRole
+    ) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'Insufficient permissions' },
+      });
+    }
+
+    req.user = payload;
+    next();
+  } catch (err) {
+    return res.status(401).json({
+      success: false,
+      error: { code: 'UNAUTHORIZED', message: 'Invalid or expired token' },
+    });
+  }
 }
 
-module.exports = { authenticate, generateToken };
+module.exports = authMiddleware;
+

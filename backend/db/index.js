@@ -1,141 +1,212 @@
-/**
- * Database Module — JSON-file persistence for evidence records.
- *
- * Zero native dependencies. Stores records in a JSON file on disk
- * and keeps an in-memory copy for fast lookups.
- * Drop-in replacement; swap to better-sqlite3/sql.js when build tools are available.
- */
-const fs = require("fs");
-const path = require("path");
-const config = require("../config");
+const fs = require('fs');
+const path = require('path');
+const Database = require('better-sqlite3');
+const config = require('../config');
 
-// Use .json extension instead of .db
-const DB_PATH = config.db.path.replace(/\.db$/, ".json");
+let db;
 
-// ──── In-memory store ────
-let records = [];
-
-// ──── Persistence helpers ────
-
-function load() {
-    try {
-        if (fs.existsSync(DB_PATH)) {
-            records = JSON.parse(fs.readFileSync(DB_PATH, "utf8"));
-        }
-    } catch (_) {
-        records = [];
-    }
+function ensureDirExists(filePath) {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
 }
 
-function save() {
-    const dir = path.dirname(DB_PATH);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(DB_PATH, JSON.stringify(records, null, 2));
+function getDb() {
+  if (db) return db;
+
+  ensureDirExists(config.sqlitePath);
+  db = new Database(config.sqlitePath);
+
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS evidence (
+      evidence_id     TEXT PRIMARY KEY,
+      file_hash       TEXT NOT NULL,
+      transaction_hash TEXT NOT NULL,
+      block_number    INTEGER NOT NULL,
+      anchored_at     TEXT NOT NULL,
+      officer_id      TEXT NOT NULL,
+      status          TEXT NOT NULL,
+      storage_cid     TEXT,
+      file_size_bytes INTEGER,
+      metadata_json   TEXT,
+      created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_evidence_officer
+      ON evidence (officer_id);
+
+    CREATE INDEX IF NOT EXISTS idx_evidence_status
+      ON evidence (status);
+
+    CREATE INDEX IF NOT EXISTS idx_evidence_anchored_at
+      ON evidence (anchored_at);
+  `);
+
+  return db;
 }
 
-// Load existing data on startup
-load();
+function upsertEvidence(record) {
+  const database = getDb();
+  const now = new Date().toISOString();
+  const stmt = database.prepare(`
+    INSERT INTO evidence (
+      evidence_id, file_hash, transaction_hash, block_number,
+      anchored_at, officer_id, status, storage_cid,
+      file_size_bytes, metadata_json, created_at, updated_at
+    )
+    VALUES (@evidence_id, @file_hash, @transaction_hash, @block_number,
+            @anchored_at, @officer_id, @status, @storage_cid,
+            @file_size_bytes, @metadata_json, @created_at, @updated_at)
+    ON CONFLICT(evidence_id) DO UPDATE SET
+      file_hash       = excluded.file_hash,
+      transaction_hash = excluded.transaction_hash,
+      block_number    = excluded.block_number,
+      anchored_at     = excluded.anchored_at,
+      officer_id      = excluded.officer_id,
+      status          = excluded.status,
+      storage_cid     = excluded.storage_cid,
+      file_size_bytes = excluded.file_size_bytes,
+      metadata_json   = excluded.metadata_json,
+      updated_at      = excluded.updated_at;
+  `);
 
-// ──── Helpers ────
+  const payload = {
+    evidence_id: record.evidenceId,
+    file_hash: record.fileHash,
+    transaction_hash: record.transactionHash,
+    block_number: record.blockNumber,
+    anchored_at: record.anchoredAt,
+    officer_id: record.officerId,
+    status: record.status || 'anchored',
+    storage_cid: record.storageCid || null,
+    file_size_bytes: record.fileSizeBytes || null,
+    metadata_json: record.metadata ? JSON.stringify(record.metadata) : null,
+    created_at: record.createdAt || now,
+    updated_at: now,
+  };
 
-/**
- * Convert a snake_case DB row to the camelCase API format.
- */
-function rowToRecord(row) {
-    if (!row) return null;
-    return {
-        evidenceId: row.evidence_id,
-        fileHash: row.file_hash,
-        transactionHash: row.transaction_hash,
-        blockNumber: row.block_number,
-        anchoredAt: row.anchored_at,
-        status: row.status,
-        storageCid: row.storage_cid || undefined,
-        storageUrl: row.storage_url || undefined,
-        metadata: {
-            latitude: row.latitude,
-            longitude: row.longitude,
-            timestamp: row.capture_timestamp,
-            deviceId: row.device_id,
-            officerId: row.officer_id,
-            captureMode: row.capture_mode,
-            resolution: row.resolution,
-        },
-    };
+  stmt.run(payload);
 }
 
-// ──── Public API ────
-
-function insert(record) {
-    records.push({
-        evidence_id: record.evidenceId,
-        file_hash: record.fileHash,
-        transaction_hash: record.transactionHash,
-        block_number: record.blockNumber,
-        anchored_at: record.anchoredAt,
-        status: record.status || "anchored",
-        storage_cid: null,
-        storage_url: null,
-        latitude: record.latitude,
-        longitude: record.longitude,
-        capture_timestamp: record.captureTimestamp,
-        officer_id: record.officerId,
-        device_id: record.deviceId,
-        capture_mode: record.captureMode || "photo",
-        resolution: record.resolution,
-        created_at: new Date().toISOString(),
-    });
-    save();
+function updateStorageInfo(evidenceId, { storageCid, fileSizeBytes }) {
+  const database = getDb();
+  const stmt = database.prepare(`
+    UPDATE evidence
+    SET storage_cid = @storage_cid,
+        file_size_bytes = @file_size_bytes,
+        updated_at = @updated_at
+    WHERE evidence_id = @evidence_id;
+  `);
+  stmt.run({
+    evidence_id: evidenceId,
+    storage_cid: storageCid,
+    file_size_bytes: fileSizeBytes,
+    updated_at: new Date().toISOString(),
+  });
 }
 
-function getByHash(fileHash) {
-    return records.find((r) => r.file_hash === fileHash) || null;
+function getEvidenceById(evidenceId) {
+  const database = getDb();
+  const row = database
+    .prepare('SELECT * FROM evidence WHERE evidence_id = ?')
+    .get(evidenceId);
+  if (!row) return null;
+  return rowToDomain(row);
 }
 
-function getById(evidenceId) {
-    return records.find((r) => r.evidence_id === evidenceId) || null;
+function listEvidence({ page = 1, limit = 20, officerId, status, from, to }) {
+  const database = getDb();
+
+  const where = [];
+  const params = {};
+
+  if (officerId) {
+    where.push('officer_id = @officer_id');
+    params.officer_id = officerId;
+  }
+  if (status) {
+    where.push('status = @status');
+    params.status = status;
+  }
+  if (from) {
+    where.push('anchored_at >= @from');
+    params.from = from;
+  }
+  if (to) {
+    where.push('anchored_at <= @to');
+    params.to = to;
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+  const totalStmt = database.prepare(
+    `SELECT COUNT(*) as total FROM evidence ${whereSql};`,
+  );
+  const { total } = totalStmt.get(params);
+
+  const pageNumber = Math.max(1, Number(page) || 1);
+  const perPage = Math.min(100, Math.max(1, Number(limit) || 20));
+  const offset = (pageNumber - 1) * perPage;
+
+  const rowsStmt = database.prepare(
+    `
+      SELECT * FROM evidence
+      ${whereSql}
+      ORDER BY datetime(anchored_at) DESC
+      LIMIT @limit OFFSET @offset;
+    `,
+  );
+
+  const rows = rowsStmt.all({ ...params, limit: perPage, offset });
+
+  return {
+    records: rows.map(rowToSummary),
+    pagination: {
+      page: pageNumber,
+      limit: perPage,
+      total,
+      totalPages: Math.ceil(total / perPage) || 1,
+    },
+  };
 }
 
-function linkStorage(evidenceId, cid, url) {
-    const rec = records.find((r) => r.evidence_id === evidenceId);
-    if (rec) {
-        rec.storage_cid = cid;
-        rec.storage_url = url;
-        save();
-    }
+function rowToDomain(row) {
+  return {
+    evidenceId: row.evidence_id,
+    fileHash: row.file_hash,
+    transactionHash: row.transaction_hash,
+    blockNumber: row.block_number,
+    anchoredAt: row.anchored_at,
+    officerId: row.officer_id,
+    status: row.status,
+    storageCid: row.storage_cid || undefined,
+    fileSizeBytes: row.file_size_bytes || undefined,
+    metadata: row.metadata_json ? JSON.parse(row.metadata_json) : undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
-/**
- * Paginated listing with optional filters.
- */
-function list({ page = 1, limit = 20, officerId, status, from, to } = {}) {
-    let filtered = records;
-
-    if (officerId) filtered = filtered.filter((r) => r.officer_id === officerId);
-    if (status)    filtered = filtered.filter((r) => r.status === status);
-    if (from)      filtered = filtered.filter((r) => r.anchored_at >= from);
-    if (to)        filtered = filtered.filter((r) => r.anchored_at <= to);
-
-    // Sort by anchored_at descending
-    filtered = [...filtered].sort((a, b) => b.anchored_at.localeCompare(a.anchored_at));
-
-    const total = filtered.length;
-    const offset = (page - 1) * limit;
-    const paged = filtered.slice(offset, offset + limit);
-
-    return {
-        records: paged,
-        pagination: {
-            page,
-            limit,
-            total,
-            totalPages: Math.ceil(total / limit) || 1,
-        },
-    };
+function rowToSummary(row) {
+  return {
+    evidenceId: row.evidence_id,
+    fileHash: row.file_hash,
+    status: row.status,
+    anchoredAt: row.anchored_at,
+    officerId: row.officer_id,
+  };
 }
 
-function close() {
-    save();
-}
+module.exports = {
+  getDb,
+  upsertEvidence,
+  updateStorageInfo,
+  getEvidenceById,
+  listEvidence,
+};
 
-module.exports = { insert, getByHash, getById, linkStorage, list, close, rowToRecord };
