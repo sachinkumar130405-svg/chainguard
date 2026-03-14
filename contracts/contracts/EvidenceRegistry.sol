@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity 0.8.24;
 
-contract EvidenceRegistry {
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
+
+contract EvidenceRegistry is Ownable2Step {
     struct EvidenceRecord {
         bytes32 fileHash;
         uint256 timestamp;
@@ -13,21 +15,14 @@ contract EvidenceRegistry {
     mapping(bytes32 => EvidenceRecord) private records;
     bytes32[] private hashes;
 
-    address public owner;
     mapping(address => bool) public isAuthorized;
-
-    modifier onlyOwner() {
-        require(msg.sender == owner, "only owner");
-        _;
-    }
 
     modifier onlyAuthorized() {
         require(isAuthorized[msg.sender], "not authorized");
         _;
     }
 
-    constructor() {
-        owner = msg.sender;
+    constructor() Ownable(msg.sender) {
         isAuthorized[msg.sender] = true;
     }
 
@@ -36,14 +31,14 @@ contract EvidenceRegistry {
     }
 
     function revokeAuthorization(address _address) external onlyOwner {
-        require(_address != owner, "cannot revoke owner");
+        require(_address != owner(), "cannot revoke owner");
         isAuthorized[_address] = false;
     }
 
     event EvidenceAnchored(bytes32 indexed fileHash, address indexed officer, uint256 timestamp);
     event StorageLinked(bytes32 indexed fileHash, string ipfsCid);
 
-    function anchorEvidence(bytes32 fileHash, string calldata officerId, bytes32 gpsHash) external onlyAuthorized {
+    function anchorEvidence(bytes32 fileHash, bytes32 gpsHash) external onlyAuthorized {
         require(fileHash != bytes32(0), "fileHash required");
         require(records[fileHash].fileHash == bytes32(0), "duplicate hash");
 

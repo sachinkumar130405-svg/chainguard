@@ -2,22 +2,34 @@
  * Evidence Backend API Service
  */
 
-const API_BASE = '/api/evidence';
+const BASE_URL = import.meta.env.VITE_API_URL || '';
+const API_BASE = `${BASE_URL}/api/evidence`;
 const VERIFY_ENDPOINT = `${API_BASE}/verify`;
 
-let devToken = null;
+let authToken = localStorage.getItem('authToken') || null;
 
-async function getDevToken() {
-    if (devToken) return devToken;
-    try {
-        const res = await fetch(`${API_BASE}/mock-token`);
-        const data = await res.json();
-        devToken = data.token;
-        return devToken;
-    } catch (e) {
-        console.error('Failed to get mock token', e);
-        return '';
+export async function login(username, password) {
+    const res = await fetch(`${BASE_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (data.success && data.token) {
+        authToken = data.token;
+        localStorage.setItem('authToken', authToken);
+        return true;
     }
+    throw new Error(data.error?.message || 'Login failed');
+}
+
+export function logout() {
+    authToken = null;
+    localStorage.removeItem('authToken');
+}
+
+export function getAuthToken() {
+    return authToken;
 }
 
 export async function verifyWithBackend(file, hash) {
@@ -54,8 +66,7 @@ export async function verifyWithBackend(file, hash) {
 }
 
 export async function submitWithBackend(file, hash, metadata, onStateChange) {
-    const token = await getDevToken();
-    const authHeader = { 'Authorization': `Bearer ${token}` };
+    const authHeader = { 'Authorization': `Bearer ${authToken}` };
 
     // 1. Anchor to chain
     if (onStateChange) onStateChange('submitting');
@@ -107,8 +118,7 @@ export async function uploadEncryptedFile(evidenceId, encryptedBlob, iv, mimeTyp
 }
 
 export async function listEvidence(limit = 5) {
-    const token = await getDevToken();
-    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+    const headers = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
 
     const res = await fetch(`${API_BASE}?limit=${limit}`, { headers });
     if (!res.ok) throw new Error('Failed to list evidence');

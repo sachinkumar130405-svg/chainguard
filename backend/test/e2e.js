@@ -148,6 +148,94 @@ describe('ChainGuard backend e2e (mock blockchain)', function () {
     }
   });
 
+  it('handles offline sync edge case (delayed submission)', async () => {
+    // Offline sync is basically identical to normal submission, but the timestamp is from the past
+    const fileHash = 'dd' + Date.now().toString().padEnd(62, 'd');
+    const pastTime = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(); // 1 day ago
+    const metadata = {
+      timestamp: pastTime,
+      officerId: 'officer-uuid',
+    };
+
+    const submitRes = await request(app)
+      .post('/api/evidence/submit')
+      .set('Authorization', token)
+      .send({ fileHash, metadata })
+      .expect(201);
+
+    if (submitRes.body.data.evidenceId.length === 0) {
+      throw new Error('Missing evidence id for offline sync submission');
+    }
+  });
+
+  it('handles blockchain failure with graceful 503', async () => {
+    // We can simulate a blockchain failure by poisoning the environment or intercepting.
+    // For this e2e test, we will temporarily manipulate the config or inject a failure if possible.
+    // Since we're using mock blockchain in this test (MOCK_BLOCKCHAIN=1), let's temporarily
+    // mock the blockchain service to fail.
+    const blockchain = require('../services/blockchain');
+    const originalAnchor = blockchain.anchorEvidence;
+
+    blockchain.anchorEvidence = async () => {
+      throw new Error('Simulated blockchain network failure');
+    };
+
+    const fileHash = 'ee' + Date.now().toString().padEnd(62, 'e');
+    const submitRes = await request(app)
+      .post('/api/evidence/submit')
+      .set('Authorization', token)
+      .send({ fileHash, metadata: {} })
+      .expect(503);
+
+    // Restore original
+    blockchain.anchorEvidence = originalAnchor;
+
+    if (!submitRes.body.error || submitRes.body.error.code !== 'BLOCKCHAIN_ERROR') {
+      throw new Error('Expected 503 BLOCKCHAIN_ERROR');
+    }
+  });
+
+  it('performs full /submit -> /upload -> /verify flow', async () => {
+    const fileContent = 'full flow test media content';
+    const crypto = require('crypto');
+    const hash = crypto.createHash('sha256').update(fileContent).digest('hex');
+
+    // 1. Submit
+    const submitRes = await request(app)
+      .post('/api/evidence/submit')
+      .set('Authorization', token)
+      .send({ fileHash: hash, metadata: {} })
+      .expect(201);
+
+    const evidenceId = submitRes.body.data.evidenceId;
+
+    // 2. Upload
+    await request(app)
+      .post('/api/evidence/upload')
+      .set('Authorization', token)
+      .field('evidenceId', evidenceId)
+      .field('iv', '00112233445566778899aabb')
+      .field('mimeType', 'text/plain')
+      .attach('encryptedFile', Buffer.from('encrypted data'), 'test.bin')
+      .expect(200);
+
+    // 3. Verify
+    const verifyRes = await request(app)
+      .post('/api/evidence/verify')
+      .attach('file', Buffer.from(fileContent), 'original.txt')
+      .expect(200);
+
+    if (verifyRes.body.verified !== true) {
+      throw new Error('Expected verification to succeed');
+    }
+    if (verifyRes.body.data.match !== true) {
+      throw new Error('Expected match=true');
+    }
+    if (verifyRes.body.data.record.evidenceId !== evidenceId) {
+      throw new Error('Evidence ID mismatch in verify');
+    }
+  });
+
   after(() => {
     process.exit(0);
   });

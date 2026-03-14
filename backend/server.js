@@ -6,6 +6,8 @@ const morgan = require('morgan');
 const config = require('./config');
 const evidenceRoutes = require('./routes/evidence');
 const attestationRoutes = require('./routes/attestation');
+const authRoutes = require('./routes/auth');
+
 
 const app = express();
 
@@ -23,10 +25,11 @@ if (config.enableRequestLogging) {
   app.use(morgan('dev'));
 }
 
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', env: config.env });
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ status: 'ok', env: config.env });
 });
 
+app.use('/api/auth', authRoutes);
 app.use('/api/evidence', evidenceRoutes);
 app.use('/api/attestation', attestationRoutes);
 

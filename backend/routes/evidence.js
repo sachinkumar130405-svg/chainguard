@@ -24,17 +24,7 @@ function badRequest(res, code, message) {
   });
 }
 
-// GET /api/evidence/mock-token (For MVP development frontend only)
-router.get('/mock-token', (req, res) => {
-  const jwt = require('jsonwebtoken');
-  const payload = { sub: 'dev-user', badge: 'MVP-1234', role: config.jwt.requiredRole };
-  const token = jwt.sign(payload, config.jwt.secret, {
-    issuer: config.jwt.issuer,
-    audience: config.jwt.audience,
-    expiresIn: '24h'
-  });
-  return res.json({ success: true, token });
-});
+
 
 // POST /api/evidence/submit
 router.post(

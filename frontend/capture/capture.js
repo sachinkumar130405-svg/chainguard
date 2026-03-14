@@ -1,5 +1,5 @@
 import { hashFileStreaming, encryptFile } from '../components/CryptoUtils.js';
-import { submitWithBackend, uploadEncryptedFile } from '../components/ApiService.js';
+import { submitWithBackend, uploadEncryptedFile, login, getAuthToken, logout } from '../components/ApiService.js';
 import {
     isWebAuthnSupported,
     isPlatformAuthenticatorAvailable,
@@ -20,18 +20,67 @@ const btnNewCapture = document.getElementById('btnNewCapture');
 const btnRegisterDevice = document.getElementById('btnRegisterDevice');
 const attestationBadge = document.getElementById('attestationBadge');
 
+// Login Elements
+const loginOverlay = document.getElementById('loginOverlay');
+const loginForm = document.getElementById('loginForm');
+const loginUsernameInput = document.getElementById('loginUsername');
+const loginPasswordInput = document.getElementById('loginPassword');
+const loginErrorDisplay = document.getElementById('loginError');
+const btnLoginSubmit = document.getElementById('btnLoginSubmit');
+const btnLogout = document.getElementById('btnLogout');
+
 let currentGps = null;
 let db = null;
 let deviceAttested = false;
 
-// ---- Initialize ----
 async function init() {
     initIndexedDB();
+
+    const token = getAuthToken();
+    if (!token) {
+        showLogin();
+    } else {
+        await startApp();
+    }
+}
+
+function showLogin() {
+    loginOverlay.classList.remove('hidden');
+    loginForm.addEventListener('submit', handleLogin);
+}
+
+async function handleLogin(e) {
+    e.preventDefault();
+    loginErrorDisplay.classList.add('hidden');
+    btnLoginSubmit.disabled = true;
+    btnLoginSubmit.textContent = 'Logging in...';
+
+    try {
+        await login(loginUsernameInput.value, loginPasswordInput.value);
+        loginOverlay.classList.add('hidden');
+        loginForm.reset();
+        await startApp();
+    } catch (err) {
+        loginErrorDisplay.textContent = err.message || 'Login failed';
+        loginErrorDisplay.classList.remove('hidden');
+    } finally {
+        btnLoginSubmit.disabled = false;
+        btnLoginSubmit.textContent = 'Login';
+    }
+}
+
+function handleLogout() {
+    logout();
+    location.reload();
+}
+
+async function startApp() {
     setupCamera();
     startGpsTracking();
 
     btnCapture.addEventListener('click', handleCapture);
     btnNewCapture.addEventListener('click', resetCapture);
+    if (btnLogout) btnLogout.addEventListener('click', handleLogout);
 
     window.addEventListener('online', updateNetworkStatus);
     window.addEventListener('offline', updateNetworkStatus);
@@ -110,6 +159,11 @@ function updateNetworkStatus() {
 
 // ---- IndexedDB ----
 function initIndexedDB() {
+    if (!window.indexedDB) {
+        console.warn("Your browser doesn't support a stable version of IndexedDB. Offline capture features will not be available.");
+        return;
+    }
+
     const request = indexedDB.open('ChainGuardOffline', 1);
     request.onupgradeneeded = (e) => {
         db = e.target.result;
@@ -154,13 +208,22 @@ function deleteOfflineRecord(id) {
     });
 }
 
-async function trySync() {
-    if (!db || !navigator.onLine) return;
-    const records = await getOfflineRecords();
-    if (records.length === 0) return;
+let isSyncing = false;
+let syncRetryCount = 0;
 
+async function trySync() {
+    if (!db || !navigator.onLine || isSyncing) return;
+    const records = await getOfflineRecords();
+    if (records.length === 0) {
+        syncRetryCount = 0;
+        return;
+    }
+
+    isSyncing = true;
     syncStatusDisplay.className = 'sync-status syncing';
     syncStatusDisplay.textContent = `Syncing ${records.length}...`;
+
+    let failedSyncs = 0;
 
     for (const record of records) {
         try {
@@ -173,10 +236,27 @@ async function trySync() {
             await deleteOfflineRecord(record.id);
         } catch (err) {
             console.error('Failed to sync record', record.id, err);
+            failedSyncs++;
         }
     }
 
-    updateNetworkStatus();
+    isSyncing = false;
+
+    if (failedSyncs > 0) {
+        syncStatusDisplay.className = 'sync-status error';
+        syncStatusDisplay.textContent = `Sync Failed (${failedSyncs})`;
+
+        syncRetryCount++;
+        const backoffMs = Math.min(1000 * Math.pow(2, syncRetryCount), 60000); // Max 1 minute
+        console.log(`Scheduling retry ${syncRetryCount} in ${backoffMs}ms`);
+        setTimeout(() => { if (navigator.onLine) trySync(); }, backoffMs);
+
+    } else {
+        syncRetryCount = 0;
+        syncStatusDisplay.className = 'sync-status anchored';
+        syncStatusDisplay.textContent = '✓ Fully Synced';
+        setTimeout(updateNetworkStatus, 3000);
+    }
 }
 
 // ---- Camera & Media ----
@@ -265,10 +345,21 @@ async function handleCapture() {
                 const { encryptedBlob, iv } = await encryptFile(file);
                 await uploadEncryptedFile(submitData.evidenceId, encryptedBlob, iv, file.type, submitData.authHeader);
 
-                resultStatus.textContent = attestationResult
+                // Add success visual
+                const successIcon = document.createElement('div');
+                successIcon.className = 'result-success-icon';
+                successIcon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`;
+                resultStatus.parentNode.insertBefore(successIcon, resultStatus);
+
+                resultStatus.innerHTML = attestationResult
                     ? '✓ Secured & Hardware Attested'
                     : '✓ Secured Successfully';
                 resultStatus.style.color = 'var(--green)';
+
+                syncStatusDisplay.className = 'sync-status anchored';
+                syncStatusDisplay.textContent = '✓ Anchored';
+                setTimeout(updateNetworkStatus, 4000);
+
             } catch (err) {
                 console.error('Online submit failed, falling back to cache:', err);
                 await cacheEvidence(file, hash, metadata);
@@ -281,13 +372,32 @@ async function handleCapture() {
         console.error('Capture flow error:', err);
         resultStatus.textContent = 'Capture Failed';
         resultStatus.style.color = 'var(--red)';
-        resultHash.textContent = err.message;
+        resultHash.innerHTML = `<span style="color:var(--red)">Error: ${err.message || 'Unknown error occurred'}</span>`;
+
+        syncStatusDisplay.className = 'sync-status error';
+        syncStatusDisplay.textContent = 'Capture Failed';
+        setTimeout(updateNetworkStatus, 3000);
     }
 
     btnNewCapture.classList.remove('hidden');
 }
 
 async function cacheEvidence(file, hash, metadata) {
+    if (!db) {
+        alert("Offline storage is not available in your browser. This capture cannot be saved offline.");
+        return;
+    }
+
+    const MAX_QUEUE_SIZE = 50;
+    const records = await getOfflineRecords();
+
+    if (records.length >= MAX_QUEUE_SIZE) {
+        alert(`Offline storage limit reached (${MAX_QUEUE_SIZE} items). Please connect to the internet to sync pending evidence before capturing more.`);
+        resultStatus.textContent = 'Storage Limit Reached';
+        resultStatus.style.color = 'var(--red)';
+        return;
+    }
+
     resultStatus.textContent = 'Caching Offline...';
     await saveToOfflineDB({ file, hash, metadata, timestamp: Date.now() });
     resultStatus.textContent = 'Saved Offline. Will sync when connected.';
@@ -299,6 +409,10 @@ function resetCapture() {
     resultOverlay.classList.add('hidden');
     btnCapture.disabled = false;
     resultStatus.style.color = 'var(--cyan)';
+
+    // Remove success icon if it was added
+    const icon = document.querySelector('.result-success-icon');
+    if (icon) icon.remove();
 }
 
 // ---- Run ----

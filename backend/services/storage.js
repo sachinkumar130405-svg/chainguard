@@ -56,59 +56,69 @@ async function storeToDisk(fileBuffer, { evidenceId, iv, mimeType }) {
 }
 
 /**
- * Real IPFS storage via Pinata API.
+ * Real IPFS storage via Pinata SDK.
  */
 async function storeToIPFS(fileBuffer, { evidenceId, iv, mimeType }) {
-  const pinataJwt = process.env.PINATA_JWT;
-  if (!pinataJwt) {
-    throw new Error('IPFS storage failed: PINATA_JWT environment variable is missing.');
+  const apiKey = process.env.PINATA_API_KEY;
+  const secretKey = process.env.PINATA_SECRET_KEY || process.env.PINATA_SECRET;
+
+  if (!apiKey || !secretKey) {
+    throw new Error('IPFS storage failed: PINATA_API_KEY or PINATA_SECRET environment variable is missing.');
   }
 
-  const formData = new FormData();
-  const blob = new Blob([fileBuffer], { type: mimeType });
-  formData.append('file', blob, `${evidenceId}.enc`);
+  // Require inside the function or file scope
+  const pinataSDK = require('@pinata/sdk');
+  const pinata = new pinataSDK(apiKey, secretKey);
 
-  const metadata = JSON.stringify({
-    name: `chainguard_${evidenceId}`,
-    keyvalues: { evidenceId, iv }
-  });
-  formData.append('pinataMetadata', metadata);
-
-  const options = JSON.stringify({ cidVersion: 1 });
-  formData.append('pinataOptions', options);
-
-  try {
-    const res = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${pinataJwt}`
-      },
-      body: formData
-    });
-
-    if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(`Pinata API error (${res.status}): ${errorText}`);
+  const options = {
+    pinataMetadata: {
+      name: `chainguard_${evidenceId}`,
+      keyvalues: { evidenceId, iv }
+    },
+    pinataOptions: {
+      cidVersion: 1
     }
+  };
 
-    const data = await res.json();
-    const storageCid = data.IpfsHash;
-    const storageUrl = `https://gateway.pinata.cloud/ipfs/${storageCid}`;
+  const maxRetries = 3;
+  let attempt = 0;
 
-    console.log(`[STORAGE] IPFS storage: pinned file ${evidenceId} to ${storageCid}`);
+  // Pinata SDK requires a readable stream
+  const { Readable } = require('stream');
 
-    return {
-      evidenceId,
-      storageCid,
-      storageUrl,
-      fileSizeBytes: data.PinSize,
-      uploadedAt: new Date().toISOString(),
-      iv,
-      mimeType,
-    };
-  } catch (err) {
-    console.error('[STORAGE] IPFS pinning failed:', err);
-    throw err;
+  while (attempt < maxRetries) {
+    try {
+      attempt++;
+
+      const stream = new Readable();
+      stream.push(fileBuffer);
+      stream.push(null);
+      stream.path = `${evidenceId}.enc`;
+
+      const res = await pinata.pinFileToIPFS(stream, options);
+
+      const storageCid = res.IpfsHash;
+      const storageUrl = `https://gateway.pinata.cloud/ipfs/${storageCid}`;
+
+      console.log(`[STORAGE] IPFS storage: pinned file ${evidenceId} to ${storageCid}`);
+
+      return {
+        evidenceId,
+        storageCid,
+        storageUrl,
+        fileSizeBytes: res.PinSize,
+        uploadedAt: new Date().toISOString(),
+        iv,
+        mimeType,
+      };
+    } catch (err) {
+      console.error(`[STORAGE] IPFS pinning failed on attempt ${attempt}:`, err.message || err);
+      if (attempt >= maxRetries) {
+        throw new Error(`IPFS storage failed after ${maxRetries} attempts: ${err.message || err}`);
+      }
+      // Wait before retry (exponential backoff)
+      await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
+    }
   }
 }
 

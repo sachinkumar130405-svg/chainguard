@@ -12,6 +12,11 @@
   <img src="https://img.shields.io/badge/storage-IPFS-teal?style=flat-square" />
 </p>
 
+## 🌐 Live Deployments
+- **Verification Dashboard**: [Vercel Deployment](https://chainguard.vercel.app)
+- **Capture PWA**: [PWA App Link](https://chainguard.vercel.app/capture/)
+- **API Backend**: [Railway App](https://chainguard-backend.up.railway.app) (Example)
+
 ---
 
 ## 🔍 The Problem
@@ -57,8 +62,9 @@ Digital evidence captured by first responders — photos, videos, audio — is r
 | **Instant Hashing** | SHA-256 hash generated from raw image data the instant the shutter fires. |
 | **Metadata Bundling** | Hash bundled with GPS coordinates, NTP-synced timestamp, and verified officer ID. |
 | **Blockchain Anchoring** | Only the hash + metadata are written to an Ethereum smart contract — no PII on-chain. |
-| **Encrypted Storage** | The actual media file is AES-256 encrypted and uploaded to IPFS (or a mocked secure server). |
+| **Encrypted Storage** | The actual media file is AES-256 encrypted and uploaded to IPFS via Pinata. |
 | **Verification Dashboard** | Web portal for judges & lawyers to drag-drop evidence and verify it against the blockchain record. |
+| **Capture PWA** | A mobile-responsive web application that forces an on-device secure capture flow with instant hashing. |
 
 ---
 
@@ -124,7 +130,19 @@ cd chainguard
 npm install
 ```
 
-### 2. Start the Development Blockchain
+### 2. Environment Variables
+
+Create `.env` at the project root:
+```bash
+cp .env.example .env
+```
+Edit `.env` with your deployment variables:
+- `RPC_URL`: Your Sepolia endpoint.
+- `PRIVATE_KEY`: Deployment wallet key.
+- `PINATA_API_KEY` & `PINATA_SECRET_KEY`: For IPFS uploads.
+- `JWT_SECRET`: For officer authentication.
+
+### 3. Start the Development Blockchain
 
 ```bash
 cd contracts

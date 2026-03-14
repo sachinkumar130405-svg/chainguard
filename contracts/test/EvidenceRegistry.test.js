@@ -15,7 +15,7 @@ describe('EvidenceRegistry', function () {
     const metadataJson = '{"foo":"bar"}';
     const gpsHash = ethers.keccak256(ethers.toUtf8Bytes(metadataJson));
 
-    await contract.connect(officer).anchorEvidence(hash, 'OFFICER-1', gpsHash);
+    await contract.connect(officer).anchorEvidence(hash, gpsHash);
 
     const [exists, timestamp, officerAddress, retrievedGpsHash] =
       await contract.verifyEvidence(hash);
@@ -31,9 +31,9 @@ describe('EvidenceRegistry', function () {
     const hash = ethers.keccak256(ethers.toUtf8Bytes('file1'));
     const emptyHash = ethers.zeroPadValue('0x', 32);
 
-    await contract.anchorEvidence(hash, 'OFFICER-1', emptyHash);
+    await contract.anchorEvidence(hash, emptyHash);
     await expect(
-      contract.anchorEvidence(hash, 'OFFICER-1', emptyHash),
+      contract.anchorEvidence(hash, emptyHash),
     ).to.be.revertedWith('duplicate hash');
   });
 
@@ -44,7 +44,7 @@ describe('EvidenceRegistry', function () {
 
     // other is not authorized
     await expect(
-      contract.connect(other).anchorEvidence(hash, 'OFFICER-2', emptyHash)
+      contract.connect(other).anchorEvidence(hash, emptyHash)
     ).to.be.revertedWith('not authorized');
 
     // authorize other
@@ -52,7 +52,7 @@ describe('EvidenceRegistry', function () {
 
     // now other can anchor
     await expect(
-      contract.connect(other).anchorEvidence(hash, 'OFFICER-2', emptyHash)
+      contract.connect(other).anchorEvidence(hash, emptyHash)
     ).to.not.be.reverted;
 
     // revoke authorization
@@ -61,7 +61,7 @@ describe('EvidenceRegistry', function () {
 
     // other can no longer anchor
     await expect(
-      contract.connect(other).anchorEvidence(hash3, 'OFFICER-2', emptyHash)
+      contract.connect(other).anchorEvidence(hash3, emptyHash)
     ).to.be.revertedWith('not authorized');
   });
 
@@ -70,11 +70,11 @@ describe('EvidenceRegistry', function () {
 
     await expect(
       contract.connect(other).authorize(other.address)
-    ).to.be.revertedWith('only owner');
+    ).to.be.revertedWithCustomError(contract, 'OwnableUnauthorizedAccount');
 
     await expect(
       contract.connect(other).revokeAuthorization(officer.address)
-    ).to.be.revertedWith('only owner');
+    ).to.be.revertedWithCustomError(contract, 'OwnableUnauthorizedAccount');
   });
 
   it('owner cannot revoke themselves', async function () {
@@ -90,7 +90,7 @@ describe('EvidenceRegistry', function () {
     const hash = ethers.keccak256(ethers.toUtf8Bytes('file1'));
     const emptyHash = ethers.zeroPadValue('0x', 32);
 
-    await contract.connect(officer).anchorEvidence(hash, 'OFFICER-1', emptyHash);
+    await contract.connect(officer).anchorEvidence(hash, emptyHash);
 
     await expect(
       contract.connect(other).linkStorage(hash, 'cid'),

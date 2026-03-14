@@ -3,10 +3,26 @@
    ═══════════════════════════════════════════════════════════════ */
 
 import { initClock } from './components/HeaderClock.js';
-import { initStatCounters } from './components/StatCounter.js';
+import { initStatCounters } from './components/DashboardStats.js';
 import { hashFileStreaming, encryptFile } from './components/CryptoUtils.js';
 import { verifyWithBackend, submitWithBackend, uploadEncryptedFile } from './components/ApiService.js';
 import { initActivityLog, fetchAndRenderActivity } from './components/ActivityLog.js';
+
+// ──── CONFIGURATION ────
+export let contractAddress = '';
+try {
+  contractAddress = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_CONTRACT_ADDRESS
+    ? import.meta.env.VITE_CONTRACT_ADDRESS
+    : '';
+} catch (e) { }
+
+// Fallback to fetch deployment.json if available
+if (!contractAddress) {
+  fetch('/contracts/deployment.json')
+    .then(r => r.json())
+    .then(data => { if (data.address) contractAddress = data.address; })
+    .catch(() => { });
+}
 
 // ──── DOM refs ────
 const $ = (sel) => document.querySelector(sel);

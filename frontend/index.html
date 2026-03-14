@@ -318,6 +318,32 @@
       </div>
     </section>
 
+    <!-- ════════ MOBILE CAPTURE PWA ════════ -->
+    <section class="mobile-capture-section">
+      <div class="capture-app-card">
+        <div class="capture-app-content">
+          <span class="capture-app-tag">Mobile Evidence Capture</span>
+          <h2 class="capture-app-title">ChainGuard <span class="gradient-text">Capture</span></h2>
+          <p class="capture-app-desc">
+            Equip field officers with the secure PWA. Capture tamper-proof evidence with hardware-attested metadata and
+            offline syncing directly from any mobile device.
+          </p>
+          <div class="capture-app-actions">
+            <a href="/capture/" class="btn btn-primary btn-lg">
+              Launch Capture PWA
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" />
+              </svg>
+            </a>
+          </div>
+        </div>
+        <div class="qr-container-wrap">
+          <div id="qrcode"></div>
+          <span class="qr-hint">Scan to open on mobile</span>
+        </div>
+      </div>
+    </section>
+
     <!-- ════════ HOW IT WORKS ════════ -->
     <section class="info-section" id="howItWorks">
       <h2 class="section-title">How Verification Works</h2>
@@ -386,7 +412,22 @@
     </div>
   </footer>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script type="module" src="main.js"></script>
+  <script>
+    // Generate QR Code for the Capture PWA
+    window.addEventListener('load', () => {
+      const captureUrl = window.location.origin + '/capture/';
+      new QRCode(document.getElementById("qrcode"), {
+        text: captureUrl,
+        width: 140,
+        height: 140,
+        colorDark: "#07080c",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.H
+      });
+    });
+  </script>
 </body>
 
 </html>

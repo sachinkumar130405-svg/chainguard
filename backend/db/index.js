@@ -3,6 +3,17 @@ const path = require('path');
 const Database = require('better-sqlite3');
 const config = require('../config');
 
+/**
+ * ═══════════════════════════════════════════════════════════════
+ * SCHEMA MIGRATIONS & VERSIONING
+ * ═══════════════════════════════════════════════════════════════
+ * v1.0.0 (2026-03-13): Initial evidence table schema.
+ * v1.0.1 (2026-03-14): Added indices for common query patterns 
+ *                      (officer_id, status, anchored_at).
+ * v1.0.2 (2026-03-14): Added file_hash index and optimized sort order.
+ * ═══════════════════════════════════════════════════════════════
+ */
+
 let db;
 
 function ensureDirExists(filePath) {
@@ -45,6 +56,9 @@ function getDb() {
 
     CREATE INDEX IF NOT EXISTS idx_evidence_anchored_at
       ON evidence (anchored_at);
+
+    CREATE INDEX IF NOT EXISTS idx_evidence_file_hash
+      ON evidence (file_hash);
   `);
 
   return db;
@@ -157,7 +171,7 @@ function listEvidence({ page = 1, limit = 20, officerId, status, from, to }) {
     `
       SELECT * FROM evidence
       ${whereSql}
-      ORDER BY datetime(anchored_at) DESC
+      ORDER BY anchored_at DESC
       LIMIT @limit OFFSET @offset;
     `,
   );

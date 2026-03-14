@@ -10,10 +10,10 @@
 | Concern | Choice | Rationale |
 |---|---|---|
 | **Dashboard Frontend** | Vite + Vanilla JS/CSS | Zero framework overhead, instant HMR, fast hackathon iteration |
-| **Capture PWA** | React + PWA (future) | MediaDevices API + Service Worker for offline caching |
+| **Capture PWA** | Vanilla JS + PWA | MediaDevices API + Service Worker for offline caching and secure capture |
 | **Backend API** | Node.js + Express | Fast to scaffold, JS everywhere, massive ecosystem |
-| **Blockchain** | Solidity + Hardhat | Industry standard, rich tooling, fast local dev chain |
-| **Decentralized Storage** | IPFS via Pinata (mocked in MVP) | Content-addressable, immutable, production-ready gateway |
+| **Blockchain** | Solidity + Hardhat + Sepolia | Industry standard, deployed to Sepolia testnet for public verification |
+| **Decentralized Storage** | IPFS via Pinata | Content-addressable, immutable, production-ready gateway |
 | **Client Hashing** | Web Crypto API (`SubtleCrypto`) | Native browser API — no dependencies, hardware-accelerated |
 | **Encryption** | AES-256-GCM (Web Crypto) | NIST-approved, authenticated encryption, built into browsers |
 | **Database** | SQLite (better-sqlite3) | Embedded, zero-config, great for MVP indexing |
@@ -120,11 +120,12 @@
 ```
 chainguard/
 │
-├── frontend/                      # Verification Dashboard
-│   ├── index.html                 # Single-page app entry
+├── frontend/                      # Verification Dashboard & Capture PWA
+│   ├── index.html                 # Verification Dashboard
+│   ├── capture/                   # Capture PWA (Mobile Evidence Collection)
 │   ├── style.css                  # Dark cyberpunk theme
 │   ├── main.js                    # App logic, hashing, verification
-│   ├── components/                # (Future) Reusable UI components
+│   ├── components/                # Reusable UI/logic modules
 │   └── assets/                    # Icons, fonts, images
 │
 ├── backend/                       # Express API server
@@ -211,18 +212,20 @@ Raw Image → AES-256-GCM Encrypt (client-side key) → Encrypted Blob → IPFS 
 
 ---
 
-## 6. Deployment Strategy (Post-MVP)
+## 6. Current Deployment Strategy
 
 ```
 ┌─────────────┐     ┌──────────────┐     ┌───────────────┐
-│ Vercel /     │     │ Railway /    │     │ Polygon /     │
-│ Netlify      │────▶│ Render       │────▶│ Arbitrum      │
-│ (Frontend)   │     │ (Backend)    │     │ (Contracts)   │
+│ Vercel      │────▶│ Railway      │────▶│ Ethereum      │
+│ (Frontend & │     │ (Backend API)│     │ Sepolia       │
+│ PWA)        │     │              │     │ (Contracts)   │
 └─────────────┘     └──────────────┘     └───────────────┘
                            │
                     ┌──────▼──────┐
-                    │ Pinata /    │
-                    │ Web3.Storage│
-                    │ (IPFS)      │
+                    │ Pinata      │
+                    │ (IPFS       │
+                    │ Storage)    │
                     └─────────────┘
 ```
+
+The system is deployed using `vercel.json` and a custom Vercel rewrites configuration for the single-page application and PWA routes, while the backend relies on Docker and `railway.toml` for scalable containerized deployment.

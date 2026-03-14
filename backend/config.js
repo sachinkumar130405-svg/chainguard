@@ -1,5 +1,14 @@
 const path = require('path');
 
+let deployData = {};
+try {
+  deployData = require('../contracts/deployment.json');
+} catch (e) {
+  try {
+    deployData = require('./contracts/deployment.json');
+  } catch (e2) { }
+}
+
 // Centralised configuration for the backend API.
 // Reads from environment variables with sensible MVP defaults.
 
@@ -20,7 +29,7 @@ module.exports = {
 
   // Hardhat / Ethereum RPC
   chainRpcUrl: env.CHAIN_RPC_URL || 'http://127.0.0.1:8545',
-  contractAddress: env.CONTRACT_ADDRESS || '', // populated from contracts deployment.json in practice
+  contractAddress: env.CONTRACT_ADDRESS || deployData.address || '', // populated from contracts deployment.json or .env
 
   // Storage
   useMockStorage: boolEnv('USE_MOCK_STORAGE', true),
@@ -36,6 +45,7 @@ module.exports = {
     audience: env.JWT_AUDIENCE || 'chainguard.officers',
     requiredRole: env.JWT_REQUIRED_ROLE || 'first_responder',
   },
+  useMockAuth: boolEnv('USE_MOCK_AUTH', false),
 
   // SQLite
   sqlitePath:
