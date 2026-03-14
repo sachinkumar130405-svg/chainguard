@@ -23,3 +23,5 @@ contracts/.env
 error.log
 err.txt
 test_out.txt
+.vercel
+.env*.local
