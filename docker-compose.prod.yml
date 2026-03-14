@@ -1,0 +1,32 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      - SQLITE_PATH=/app/data/chainguard.db
+      - CHAIN_RPC_URL=${CHAIN_RPC_URL}
+      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS}
+      - JWT_SECRET=${JWT_SECRET}
+      - PINATA_JWT=${PINATA_JWT}
+      - USE_MOCK_STORAGE=false
+    volumes:
+      - backend_data:/app/data
+    ports:
+      - "3000:3000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  backend_data:

@@ -1,6 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const auth = require('../middleware/auth');
+const { ethers } = require('ethers');
 const { createPerMinuteLimiter } = require('../middleware/rateLimiter');
 const config = require('../config');
 const db = require('../db');
@@ -22,6 +23,18 @@ function badRequest(res, code, message) {
     error: { code, message },
   });
 }
+
+// GET /api/evidence/mock-token (For MVP development frontend only)
+router.get('/mock-token', (req, res) => {
+  const jwt = require('jsonwebtoken');
+  const payload = { sub: 'dev-user', badge: 'MVP-1234', role: config.jwt.requiredRole };
+  const token = jwt.sign(payload, config.jwt.secret, {
+    issuer: config.jwt.issuer,
+    audience: config.jwt.audience,
+    expiresIn: '24h'
+  });
+  return res.json({ success: true, token });
+});
 
 // POST /api/evidence/submit
 router.post(
@@ -165,7 +178,7 @@ router.post(
 
       await blockchain.linkStorage({
         fileHash: existing.fileHash,
-        storageCid: stored.storageCid,
+        ipfsCid: stored.storageCid,
       });
 
       return res.json({
@@ -230,12 +243,20 @@ router.post(
         metadata: record.metadata,
       };
 
+      let metadataValid = false;
+      if (responseRecord.metadata && record.gpsHash) {
+        const metadataStr = JSON.stringify(responseRecord.metadata);
+        const computedGpsHash = ethers.keccak256(ethers.toUtf8Bytes(metadataStr));
+        metadataValid = computedGpsHash === record.gpsHash;
+      }
+
       return res.json({
         success: true,
         verified: true,
         data: {
           computedHash,
           match: true,
+          metadataValid,
           record: {
             evidenceId: responseRecord.evidenceId,
             fileHash: responseRecord.fileHash,
@@ -248,6 +269,17 @@ router.post(
       });
     } catch (err) {
       console.error('verify error', err);
+      // Check for common ethers.js or network errors indicating blockchain is unreachable
+      if (err.code === 'NETWORK_ERROR' || err.message.includes('could not detect network') || err.message.includes('fetch failed')) {
+        return res.status(503).json({
+          success: false,
+          error: {
+            code: 'BLOCKCHAIN_UNAVAILABLE',
+            message: 'Cannot reach chain. Verification service is temporarily unavailable.',
+          },
+        });
+      }
+
       return res.status(500).json({
         success: false,
         error: { code: 'INTERNAL_ERROR', message: 'Verification failed' },

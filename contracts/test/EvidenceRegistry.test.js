@@ -13,35 +13,38 @@ describe('EvidenceRegistry', function () {
     const { contract, officer } = await deploy();
     const hash = ethers.keccak256(ethers.toUtf8Bytes('file1'));
     const metadataJson = '{"foo":"bar"}';
+    const gpsHash = ethers.keccak256(ethers.toUtf8Bytes(metadataJson));
 
-    await contract.connect(officer).anchorEvidence(hash, 'OFFICER-1', metadataJson);
+    await contract.connect(officer).anchorEvidence(hash, 'OFFICER-1', gpsHash);
 
-    const [exists, timestamp, officerAddress, metaJson] =
+    const [exists, timestamp, officerAddress, retrievedGpsHash] =
       await contract.verifyEvidence(hash);
 
     expect(exists).to.equal(true);
     expect(officerAddress).to.equal(officer.address);
-    expect(metaJson).to.equal(metadataJson);
+    expect(retrievedGpsHash).to.equal(gpsHash);
     expect(timestamp).to.be.gt(0);
   });
 
   it('rejects duplicate hashes', async function () {
     const { contract } = await deploy();
     const hash = ethers.keccak256(ethers.toUtf8Bytes('file1'));
+    const emptyHash = ethers.zeroPadValue('0x', 32);
 
-    await contract.anchorEvidence(hash, 'OFFICER-1', '{}');
+    await contract.anchorEvidence(hash, 'OFFICER-1', emptyHash);
     await expect(
-      contract.anchorEvidence(hash, 'OFFICER-1', '{}'),
+      contract.anchorEvidence(hash, 'OFFICER-1', emptyHash),
     ).to.be.revertedWith('duplicate hash');
   });
 
   it('only authorized accounts can anchor evidence', async function () {
     const { contract, officer, other } = await deploy();
     const hash = ethers.keccak256(ethers.toUtf8Bytes('file2'));
+    const emptyHash = ethers.zeroPadValue('0x', 32);
 
     // other is not authorized
     await expect(
-      contract.connect(other).anchorEvidence(hash, 'OFFICER-2', '{}')
+      contract.connect(other).anchorEvidence(hash, 'OFFICER-2', emptyHash)
     ).to.be.revertedWith('not authorized');
 
     // authorize other
@@ -49,7 +52,7 @@ describe('EvidenceRegistry', function () {
 
     // now other can anchor
     await expect(
-      contract.connect(other).anchorEvidence(hash, 'OFFICER-2', '{}')
+      contract.connect(other).anchorEvidence(hash, 'OFFICER-2', emptyHash)
     ).to.not.be.reverted;
 
     // revoke authorization
@@ -58,7 +61,7 @@ describe('EvidenceRegistry', function () {
 
     // other can no longer anchor
     await expect(
-      contract.connect(other).anchorEvidence(hash3, 'OFFICER-2', '{}')
+      contract.connect(other).anchorEvidence(hash3, 'OFFICER-2', emptyHash)
     ).to.be.revertedWith('not authorized');
   });
 
@@ -85,8 +88,9 @@ describe('EvidenceRegistry', function () {
   it('only anchoring officer can link storage', async function () {
     const { contract, officer, other } = await deploy();
     const hash = ethers.keccak256(ethers.toUtf8Bytes('file1'));
+    const emptyHash = ethers.zeroPadValue('0x', 32);
 
-    await contract.connect(officer).anchorEvidence(hash, 'OFFICER-1', '{}');
+    await contract.connect(officer).anchorEvidence(hash, 'OFFICER-1', emptyHash);
 
     await expect(
       contract.connect(other).linkStorage(hash, 'cid'),
@@ -94,7 +98,7 @@ describe('EvidenceRegistry', function () {
 
     await contract.connect(officer).linkStorage(hash, 'cid1');
     const rec = await contract.getEvidence(hash);
-    expect(rec.storageCid).to.equal('cid1');
+    expect(rec.ipfsCid).to.equal('cid1');
   });
 });
 

@@ -5,6 +5,7 @@ const cors = require('cors');
 const morgan = require('morgan');
 const config = require('./config');
 const evidenceRoutes = require('./routes/evidence');
+const attestationRoutes = require('./routes/attestation');
 
 const app = express();
 
@@ -27,6 +28,7 @@ app.get('/health', (req, res) => {
 });
 
 app.use('/api/evidence', evidenceRoutes);
+app.use('/api/attestation', attestationRoutes);
 
 app.use((err, req, res, next) => {
   console.error('Unhandled error', err);

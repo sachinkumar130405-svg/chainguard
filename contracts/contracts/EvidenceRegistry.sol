@@ -6,8 +6,8 @@ contract EvidenceRegistry {
         bytes32 fileHash;
         uint256 timestamp;
         address officer;
-        string metadataJson;
-        string storageCid;
+        bytes32 gpsHash;
+        string ipfsCid;
     }
 
     mapping(bytes32 => EvidenceRecord) private records;
@@ -41,9 +41,9 @@ contract EvidenceRegistry {
     }
 
     event EvidenceAnchored(bytes32 indexed fileHash, address indexed officer, uint256 timestamp);
-    event StorageLinked(bytes32 indexed fileHash, string storageCid);
+    event StorageLinked(bytes32 indexed fileHash, string ipfsCid);
 
-    function anchorEvidence(bytes32 fileHash, string calldata officerId, string calldata metadataJson) external onlyAuthorized {
+    function anchorEvidence(bytes32 fileHash, string calldata officerId, bytes32 gpsHash) external onlyAuthorized {
         require(fileHash != bytes32(0), "fileHash required");
         require(records[fileHash].fileHash == bytes32(0), "duplicate hash");
 
@@ -51,20 +51,20 @@ contract EvidenceRegistry {
         rec.fileHash = fileHash;
         rec.timestamp = block.timestamp;
         rec.officer = msg.sender;
-        rec.metadataJson = metadataJson;
+        rec.gpsHash = gpsHash;
 
         hashes.push(fileHash);
 
         emit EvidenceAnchored(fileHash, msg.sender, block.timestamp);
     }
 
-    function linkStorage(bytes32 fileHash, string calldata storageCid) external {
+    function linkStorage(bytes32 fileHash, string calldata ipfsCid) external {
         EvidenceRecord storage rec = records[fileHash];
         require(rec.fileHash != bytes32(0), "not found");
         require(rec.officer == msg.sender, "only anchoring officer");
 
-        rec.storageCid = storageCid;
-        emit StorageLinked(fileHash, storageCid);
+        rec.ipfsCid = ipfsCid;
+        emit StorageLinked(fileHash, ipfsCid);
     }
 
     function verifyEvidence(bytes32 fileHash)
@@ -74,15 +74,15 @@ contract EvidenceRegistry {
             bool exists,
             uint256 timestamp,
             address officer,
-            string memory metadataJson,
-            string memory storageCid
+            bytes32 gpsHash,
+            string memory ipfsCid
         )
     {
         EvidenceRecord storage rec = records[fileHash];
         if (rec.fileHash == bytes32(0)) {
-            return (false, 0, address(0), "", "");
+            return (false, 0, address(0), bytes32(0), "");
         }
-        return (true, rec.timestamp, rec.officer, rec.metadataJson, rec.storageCid);
+        return (true, rec.timestamp, rec.officer, rec.gpsHash, rec.ipfsCid);
     }
 
     function getEvidence(bytes32 fileHash) external view returns (EvidenceRecord memory) {

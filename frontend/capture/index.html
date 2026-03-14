@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#07080c" />
+    <title>ChainGuard Capture</title>
+    <link rel="manifest" href="/capture/manifest.json" />
+    <link rel="stylesheet" href="/assets/style.css" />
+    <link rel="stylesheet" href="capture.css" />
+</head>
+
+<body>
+    <div id="app">
+        <header class="capture-header">
+            <h2>ChainGuard Capture</h2>
+            <div class="header-badges">
+                <div id="attestationBadge" class="attestation-badge not-registered">Not Registered</div>
+                <div id="syncStatus" class="sync-status online">Online</div>
+            </div>
+        </header>
+
+        <main class="capture-main">
+            <div class="camera-container">
+                <video id="cameraView" autoplay playsinline></video>
+                <div class="camera-overlay">
+                    <div class="crosshair"></div>
+                </div>
+            </div>
+
+            <div class="controls-container">
+                <div class="metadata-display">
+                    <span id="gpsLocation">Waiting for GPS...</span>
+                </div>
+                <div class="capture-actions">
+                    <button id="btnRegisterDevice" class="btn btn-secondary btn-sm">Register Device</button>
+                    <button id="btnCapture" class="btn-capture" disabled></button>
+                </div>
+            </div>
+
+            <div id="resultOverlay" class="result-overlay hidden">
+                <div class="result-box">
+                    <h3 id="resultStatus">Hashing...</h3>
+                    <p id="resultHash" class="mono"></p>
+                    <button id="btnNewCapture" class="btn btn-secondary hidden">New Capture</button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script type="module" src="capture.js"></script>
+</body>
+
+</html>

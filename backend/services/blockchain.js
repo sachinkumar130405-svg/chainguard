@@ -62,13 +62,16 @@ async function anchorEvidence({ fileHash, metadata, officerId }) {
     const now = new Date().toISOString();
     const txHash = '0x' + fileHash.slice(0, 8) + 'mock';
     const blockNumber = Math.floor(Math.random() * 1_000_000) + 1;
+    const metadataStr = JSON.stringify(metadata || {});
+    const gpsHash = ethers.keccak256(ethers.toUtf8Bytes(metadataStr));
     const record = {
       fileHash,
       transactionHash: txHash,
       blockNumber,
       anchoredAt: now,
       officerId,
-      metadata,
+      metadata, // Mock still holds metadata in memory for convenience
+      gpsHash
     };
     mockLedger.set(fileHash, record);
     return record;
@@ -76,7 +79,10 @@ async function anchorEvidence({ fileHash, metadata, officerId }) {
 
   const c = getContract();
   const hashBytes32 = '0x' + fileHash;
-  const tx = await c.anchorEvidence(hashBytes32, officerId, JSON.stringify(metadata || {}));
+  const metadataStr = JSON.stringify(metadata || {});
+  const gpsHash = ethers.keccak256(ethers.toUtf8Bytes(metadataStr));
+
+  const tx = await c.anchorEvidence(hashBytes32, officerId, gpsHash);
   const receipt = await tx.wait();
 
   const block = await provider.getBlock(receipt.blockNumber);
@@ -113,24 +119,26 @@ async function verifyEvidence(fileHash) {
     blockNumber: Number(result.blockNumber),
     anchoredAt: new Date(Number(result.timestamp) * 1000).toISOString(),
     officerId: result.officer,
-    metadata: JSON.parse(result.metadataJson || '{}'),
+    gpsHash: result.gpsHash,
+    ipfsCid: result.ipfsCid, // Renamed from storageCid
+    metadata: null,
   };
 
   return { match: true, record };
 }
 
-async function linkStorage({ fileHash, storageCid }) {
+async function linkStorage({ fileHash, ipfsCid }) {
   if (useMock) {
     const existing = mockLedger.get(fileHash);
     if (!existing) return;
-    existing.storageCid = storageCid;
+    existing.ipfsCid = ipfsCid;
     mockLedger.set(fileHash, existing);
     return existing;
   }
 
   const c = getContract();
   const hashBytes32 = '0x' + fileHash;
-  const tx = await c.linkStorage(hashBytes32, storageCid);
+  const tx = await c.linkStorage(hashBytes32, ipfsCid);
   const receipt = await tx.wait();
   return { transactionHash: receipt.hash, blockNumber: receipt.blockNumber };
 }

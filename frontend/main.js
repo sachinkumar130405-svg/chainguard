@@ -1,6 +1,12 @@
 /* ═══════════════════════════════════════════════════════════════
-   CHAINGUARD — Verification Dashboard · Main Logic
+   CHAINGUARD — Verification Dashboard · Main Entry Point
    ═══════════════════════════════════════════════════════════════ */
+
+import { initClock } from './components/HeaderClock.js';
+import { initStatCounters } from './components/StatCounter.js';
+import { hashFileStreaming, encryptFile } from './components/CryptoUtils.js';
+import { verifyWithBackend, submitWithBackend, uploadEncryptedFile } from './components/ApiService.js';
+import { initActivityLog, fetchAndRenderActivity } from './components/ActivityLog.js';
 
 // ──── DOM refs ────
 const $ = (sel) => document.querySelector(sel);
@@ -24,63 +30,39 @@ const btnReset = $('#btnReset');
 const btnDownloadReport = $('#btnDownloadReport');
 const headerTime = $('#headerTime');
 
-// ──── CONSTANTS ────
-const RING_CIRCUMFERENCE = 2 * Math.PI * 52; // r = 52 in the SVG
-const VERIFY_ENDPOINT = 'http://localhost:3001/api/evidence/verify';
+// Mode toggle & form
+const btnModeVerify = $('#btnModeVerify');
+const btnModeSubmit = $('#btnModeSubmit');
+const submitForm = $('#submitForm');
+const inputOfficer = $('#inputOfficer');
+const inputLat = $('#inputLat');
+const inputLng = $('#inputLng');
+const errorTitle = $('#errorTitle');
+const errorDesc = $('#errorDesc');
 
-// ──── HEADER CLOCK ────
-function updateClock() {
-  const now = new Date();
-  const hh = String(now.getHours()).padStart(2, '0');
-  const mm = String(now.getMinutes()).padStart(2, '0');
-  const ss = String(now.getSeconds()).padStart(2, '0');
-  headerTime.textContent = `${hh}:${mm}:${ss} UTC${now.getTimezoneOffset() <= 0 ? '+' : '-'}${String(Math.abs(now.getTimezoneOffset() / 60)).padStart(2, '0')}`;
-}
-updateClock();
-setInterval(updateClock, 1000);
+// ──── GLOBAL STATE ────
+const RING_CIRCUMFERENCE = 2 * Math.PI * 52;
+let currentMode = 'verify';
 
-// ──── STAT COUNTER ANIMATION ────
-function animateCounters() {
-  document.querySelectorAll('.stat-value').forEach((el) => {
-    const target = el.textContent;
-    // skip non-numeric stats
-    if (target.includes('%')) return;
-    const num = parseInt(target.replace(/,/g, ''), 10);
-    if (isNaN(num)) return;
-    let current = 0;
-    const duration = 1800;
-    const start = performance.now();
-    function tick(now) {
-      const elapsed = now - start;
-      const progress = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 3);
-      current = Math.round(eased * num);
-      el.textContent = current.toLocaleString();
-      if (progress < 1) requestAnimationFrame(tick);
-    }
-    requestAnimationFrame(tick);
-  });
-}
+// ──── INITIALIZATION ────
+initClock(headerTime);
+initStatCounters();
+initActivityLog();
+showState('default');
+hashProgressRing.style.strokeDasharray = RING_CIRCUMFERENCE;
+hashProgressRing.style.strokeDashoffset = RING_CIRCUMFERENCE;
 
-// Trigger on viewport entry
-const statsObserver = new IntersectionObserver((entries) => {
-  entries.forEach(e => { if (e.isIntersecting) { animateCounters(); statsObserver.disconnect(); } });
-}, { threshold: 0.5 });
-document.querySelectorAll('.hero-stats').forEach(el => statsObserver.observe(el));
-
-// ──── DRAG & DROP ────
+// ──── EVENT LISTENERS ────
 ['dragenter', 'dragover'].forEach(evt => {
   dropzone.addEventListener(evt, (e) => {
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault(); e.stopPropagation();
     dropzone.classList.add('drag-over');
   });
 });
 
 ['dragleave', 'drop'].forEach(evt => {
   dropzone.addEventListener(evt, (e) => {
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault(); e.stopPropagation();
     dropzone.classList.remove('drag-over');
   });
 });
@@ -91,14 +73,9 @@ dropzone.addEventListener('drop', (e) => {
 });
 
 dropzone.addEventListener('click', () => {
-  if (!dropzone.classList.contains('hashing') && !dropzone.classList.contains('verifying')) {
-    fileInput.click();
-  }
-});
-
-dropzone.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' || e.key === ' ') {
-    e.preventDefault();
+  if (!dropzone.classList.contains('hashing') &&
+    !dropzone.classList.contains('verifying') &&
+    !dropzone.classList.contains('submitting')) {
     fileInput.click();
   }
 });
@@ -107,30 +84,35 @@ fileInput.addEventListener('change', () => {
   if (fileInput.files.length > 0) processFile(fileInput.files[0]);
 });
 
-// ──── UTILITY ────
-function formatBytes(bytes) {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-}
-
-function hexString(buffer) {
-  const byteArray = new Uint8Array(buffer);
-  return Array.from(byteArray).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-function sleep(ms) {
-  return new Promise(r => setTimeout(r, ms));
-}
-
-// ──── CORE: PROCESS FILE ────
-async function processFile(file) {
-  // Reset previous state
+btnModeVerify.addEventListener('click', () => {
+  currentMode = 'verify';
+  btnModeVerify.classList.add('active');
+  btnModeSubmit.classList.remove('active');
+  submitForm.classList.add('hidden');
   hideResults();
+  setupDropzoneText();
+});
 
-  // Show hashing state
+btnModeSubmit.addEventListener('click', () => {
+  currentMode = 'submit';
+  btnModeSubmit.classList.add('active');
+  btnModeVerify.classList.remove('active');
+  submitForm.classList.remove('hidden');
+  hideResults();
+  setupDropzoneText();
+});
+
+function setupDropzoneText() {
+  const title = $('.dz-default .dz-title');
+  title.textContent = currentMode === 'verify'
+    ? 'Drop evidence file to verify'
+    : 'Drop evidence file to submit';
+}
+
+// ──── CORE LOGIC ────
+
+async function processFile(file) {
+  hideResults();
   showState('hashing');
   hashFileName.textContent = file.name;
   dropzone.classList.add('hashing');
@@ -138,187 +120,84 @@ async function processFile(file) {
   const totalSize = file.size;
   const totalStr = formatBytes(totalSize);
 
-  // Hash using streaming for large files
-  const hash = await hashFileStreaming(file, (bytesRead) => {
-    const pct = Math.round((bytesRead / totalSize) * 100);
-    hashPercent.textContent = pct + '%';
-
-    // Animate SVG ring
-    const offset = RING_CIRCUMFERENCE - (pct / 100) * RING_CIRCUMFERENCE;
-    hashProgressRing.style.strokeDashoffset = offset;
-
-    // Update bytes display
-    hashBytes.innerHTML = `<span class="bytes-processed">${formatBytes(bytesRead)}</span> / <span class="bytes-total">${totalStr}</span>`;
-  });
-
-  // Small delay for UX
-  await sleep(400);
-
-  // Show hash
-  dropzone.classList.remove('hashing');
-
-  // Show encrypting state
-  showState('encrypting');
-  dropzone.classList.add('encrypting');
-
-  // Perform encryption
   try {
-    const { encryptedBlob, iv, key } = await encryptFile(file);
-    console.log(`Encrypted blob size: ${formatBytes(encryptedBlob.size)}`);
-    // Note: We don't upload the blob in the verification dashboard, but we demonstrate the client-side encryption step
+    const hash = await hashFileStreaming(file, (bytesRead) => {
+      const pct = Math.round((bytesRead / totalSize) * 100);
+      hashPercent.textContent = pct + '%';
+      hashProgressRing.style.strokeDashoffset = RING_CIRCUMFERENCE - (pct / 100) * RING_CIRCUMFERENCE;
+      hashBytes.innerHTML = `<span class="bytes-processed">${formatBytes(bytesRead)}</span> / <span class="bytes-total">${totalStr}</span>`;
+    });
+
+    await sleep(400);
+    dropzone.classList.remove('hashing');
+    hashOutput.classList.remove('hidden');
+    hashValue.textContent = hash;
+
+    let record = null;
+
+    if (currentMode === 'verify') {
+      showState('verifying');
+      dropzone.classList.add('verifying');
+      record = await verifyWithBackend(file, hash);
+    } else {
+      const metadata = {
+        officerId: inputOfficer.value || 'UNKNOWN',
+        latitude: parseFloat(inputLat.value) || 0,
+        longitude: parseFloat(inputLng.value) || 0,
+      };
+
+      // 1. Submit/Anchor
+      const submitData = await submitWithBackend(file, hash, metadata, (state) => {
+        showState(state);
+        dropzone.classList.add(state);
+      });
+
+      // 2. Encrypt
+      showState('encrypting');
+      dropzone.classList.add('encrypting');
+      const { encryptedBlob, iv } = await encryptFile(file);
+
+      // 3. Upload
+      showState('uploading');
+      dropzone.classList.add('uploading');
+      await uploadEncryptedFile(submitData.evidenceId, encryptedBlob, iv, file.type, submitData.authHeader);
+
+      record = {
+        ...submitData,
+        officerId: metadata.officerId,
+        latitude: metadata.latitude,
+        longitude: metadata.longitude
+      };
+    }
+
+    showResult(record, null);
+    await fetchAndRenderActivity();
   } catch (err) {
-    console.error('Encryption error:', err);
+    console.error('Processing error:', err);
+    showResult(null, err.message);
+  } finally {
+    dropzone.classList.remove('verifying', 'submitting', 'uploading', 'encrypting');
+    showState('default');
   }
-
-  // Small delay for UX
-  await sleep(600);
-
-  dropzone.classList.remove('encrypting');
-  showState('verifying');
-  dropzone.classList.add('verifying');
-
-  hashOutput.classList.remove('hidden');
-  hashValue.textContent = hash;
-
-  // Real blockchain verification via backend API
-  let record = null;
-  try {
-    record = await verifyWithBackend(file, hash);
-  } catch (err) {
-    console.error('Verification error:', err);
-  }
-
-  dropzone.classList.remove('verifying');
-  showState('default');
-
-  showResult(record, hash);
 }
 
-// ──── STREAMING SHA-256 ────
-async function hashFileStreaming(file, onProgress) {
-  // For browsers that don't support streams, fall back to ArrayBuffer
-  const CHUNK_SIZE = 2 * 1024 * 1024; // 2 MB chunks
+// ──── UI HELPERS ────
 
-  if (file.size < CHUNK_SIZE * 2) {
-    // Small file: single-shot hash
-    onProgress(0);
-    const buffer = await file.arrayBuffer();
-    onProgress(file.size);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
-    return hexString(hashBuffer);
-  }
-
-  // Large file: read in chunks and simulate progressive hashing
-  // Note: Web Crypto doesn't have a streaming API, so we read the full file
-  // but report progress as chunks are read.
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    let offset = 0;
-
-    // We simulate chunk progress while FileReader loads the whole thing
-    const progressInterval = setInterval(() => {
-      offset = Math.min(offset + CHUNK_SIZE, file.size);
-      onProgress(offset);
-      if (offset >= file.size) clearInterval(progressInterval);
-    }, 120);
-
-    reader.onload = async () => {
-      clearInterval(progressInterval);
-      onProgress(file.size);
-      try {
-        const hashBuffer = await crypto.subtle.digest('SHA-256', reader.result);
-        resolve(hexString(hashBuffer));
-      } catch (err) {
-        reject(err);
-      }
-    };
-    reader.onerror = () => { clearInterval(progressInterval); reject(reader.error); };
-    reader.readAsArrayBuffer(file);
-  });
-}
-
-// ──── CLIENT-SIDE ENCRYPTION ────
-async function encryptFile(file) {
-  const buffer = await file.arrayBuffer();
-
-  // Generate random 256-bit AES key and 12-byte IV
-  const key = await crypto.subtle.generateKey(
-    { name: 'AES-GCM', length: 256 },
-    true,
-    ['encrypt', 'decrypt']
-  );
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-
-  // Encrypt the buffer
-  const encryptedBuffer = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv: iv },
-    key,
-    buffer
-  );
-
-  return {
-    encryptedBlob: new Blob([encryptedBuffer], { type: 'application/octet-stream' }),
-    iv: hexString(iv),
-    key: key
-  };
-}
-
-// ──── LEDGER LOOKUP (REAL BACKEND) ────
-async function verifyWithBackend(file, hash) {
-  const formData = new FormData();
-  formData.append('file', file, file.name);
-
-  const response = await fetch(VERIFY_ENDPOINT, {
-    method: 'POST',
-    body: formData,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Verify request failed with status ${response.status}`);
-  }
-
-  const payload = await response.json();
-
-  // No match / error envelope
-  if (!payload.success || !payload.verified || !payload.data || !payload.data.match) {
-    return null;
-  }
-
-  const rec = payload.data.record || {};
-  const meta = rec.metadata || {};
-
-  return {
-    evidenceId: rec.evidenceId,
-    transactionHash: rec.transactionHash,
-    blockNumber: rec.blockNumber,
-    anchoredAt: rec.anchoredAt,
-    officerId: meta.officerId || rec.officerId || 'UNKNOWN',
-    latitude: typeof meta.latitude === 'number' ? meta.latitude : (rec.latitude || 0),
-    longitude: typeof meta.longitude === 'number' ? meta.longitude : (rec.longitude || 0),
-  };
-}
-
-// ──── UI STATE MANAGEMENT ────
 function showState(state) {
   dzDefault.classList.add('hidden');
   dzHashing.classList.add('hidden');
   dzEncrypting.classList.add('hidden');
   dzVerifying.classList.add('hidden');
+  $('#dzSubmitting').classList.add('hidden');
+  $('#dzUploading').classList.add('hidden');
 
   switch (state) {
-    case 'hashing':
-      dzHashing.classList.remove('hidden');
-      hashPercent.textContent = '0%';
-      hashProgressRing.style.strokeDashoffset = RING_CIRCUMFERENCE;
-      break;
-    case 'encrypting':
-      dzEncrypting.classList.remove('hidden');
-      break;
-    case 'verifying':
-      dzVerifying.classList.remove('hidden');
-      break;
-    default:
-      dzDefault.classList.remove('hidden');
+    case 'hashing': dzHashing.classList.remove('hidden'); break;
+    case 'encrypting': dzEncrypting.classList.remove('hidden'); break;
+    case 'verifying': dzVerifying.classList.remove('hidden'); break;
+    case 'submitting': $('#dzSubmitting').classList.remove('hidden'); break;
+    case 'uploading': $('#dzUploading').classList.remove('hidden'); break;
+    default: dzDefault.classList.remove('hidden');
   }
 }
 
@@ -330,77 +209,78 @@ function hideResults() {
   btnDownloadReport.classList.add('hidden');
 }
 
-function showResult(record, hash) {
+function showResult(record, errorMsg) {
   resultCard.classList.remove('hidden');
+
+  if (errorMsg) {
+    resultNoMatch.classList.remove('hidden');
+    resultMatch.classList.add('hidden');
+    errorTitle.textContent = errorMsg.includes('DUPLICATE') ? 'CONFLICT — Duplicate Evidence' : 'ERROR — Process Failed';
+    errorDesc.textContent = errorMsg;
+    resultCard.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+    resultCard.style.boxShadow = '0 0 30px rgba(239, 68, 68, 0.1)';
+    return;
+  }
 
   if (record) {
     resultMatch.classList.remove('hidden');
     resultNoMatch.classList.add('hidden');
     btnDownloadReport.classList.remove('hidden');
 
-    // Populate details
+    $('.match-title').textContent = currentMode === 'submit'
+      ? 'SUCCESS — Evidence Secured'
+      : 'VERIFIED — Evidence Authentic';
+
     $('#detailEvidenceId').textContent = record.evidenceId;
     $('#detailTxHash').textContent = record.transactionHash;
-    $('#detailBlock').textContent = record.blockNumber.toLocaleString();
+    $('#detailBlock').textContent = (record.blockNumber || 0).toLocaleString();
     $('#detailTimestamp').textContent = new Date(record.anchoredAt).toLocaleString();
     $('#detailOfficer').textContent = record.officerId;
-    $('#detailGps').textContent = `${record.latitude.toFixed(4)}, ${record.longitude.toFixed(4)}`;
+    $('#detailGps').textContent = `${(record.latitude || 0).toFixed(4)}, ${(record.longitude || 0).toFixed(4)}`;
 
-    // Glow effect on card
     resultCard.style.borderColor = 'rgba(34, 197, 94, 0.3)';
     resultCard.style.boxShadow = '0 0 30px rgba(34, 197, 94, 0.1)';
   } else {
     resultNoMatch.classList.remove('hidden');
     resultMatch.classList.add('hidden');
-
+    errorTitle.textContent = 'UNVERIFIED — No Record Found';
+    errorDesc.textContent = "This file's hash does not match any record on the blockchain.";
     resultCard.style.borderColor = 'rgba(239, 68, 68, 0.3)';
     resultCard.style.boxShadow = '0 0 30px rgba(239, 68, 68, 0.1)';
   }
 }
 
-// ──── COPY HASH ────
+function formatBytes(bytes) {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ──── UTILS ────
 copyHash.addEventListener('click', async () => {
   try {
     await navigator.clipboard.writeText(hashValue.textContent);
     const span = copyHash.querySelector('span');
     span.textContent = 'Copied!';
     copyHash.classList.add('copied');
-    setTimeout(() => {
-      span.textContent = 'Copy';
-      copyHash.classList.remove('copied');
-    }, 2000);
-  } catch (err) {
-    console.error('Clipboard error:', err);
-  }
+    setTimeout(() => { span.textContent = 'Copy'; copyHash.classList.remove('copied'); }, 2000);
+  } catch (err) { console.error('Clipboard error:', err); }
 });
 
-// ──── RESET ────
 btnReset.addEventListener('click', () => {
   hideResults();
   showState('default');
-  dropzone.classList.remove('hashing', 'encrypting', 'verifying');
+  dropzone.classList.remove('hashing', 'encrypting', 'verifying', 'submitting', 'uploading');
   fileInput.value = '';
-
-  // Scroll to dropzone
   dropzone.scrollIntoView({ behavior: 'smooth', block: 'center' });
 });
 
-// ──── DOWNLOAD REPORT (MOCK) ────
 btnDownloadReport.addEventListener('click', () => {
-  const hash = hashValue.textContent;
-  // Report generation now relies on the last shown record in the UI;
-  // if there is no match, there is nothing to export.
   if (resultMatch.classList.contains('hidden')) return;
-
-  const record = {
-    evidenceId: $('#detailEvidenceId').textContent,
-    transactionHash: $('#detailTxHash').textContent,
-    blockNumber: Number($('#detailBlock').textContent.replace(/,/g, '')) || 0,
-    anchoredAt: $('#detailTimestamp').textContent,
-    officerId: $('#detailOfficer').textContent,
-    latitude: 0,
-    longitude: 0,
-  };
 
   const report = `
 ═══════════════════════════════════════════
@@ -410,19 +290,19 @@ btnDownloadReport.addEventListener('click', () => {
 Date Generated:   ${new Date().toISOString()}
 
 FILE HASH (SHA-256):
-${hash}
+${hashValue.textContent}
 
 VERIFICATION STATUS:    ✅ MATCH — VERIFIED
 
 BLOCKCHAIN RECORD:
-  Evidence ID:      ${record.evidenceId}
-  Transaction Hash: ${record.transactionHash}
-  Block Number:     ${record.blockNumber.toLocaleString()}
-  Anchored At:      ${new Date(record.anchoredAt).toLocaleString()}
+  Evidence ID:      ${$('#detailEvidenceId').textContent}
+  Transaction Hash: ${$('#detailTxHash').textContent}
+  Block Number:     ${$('#detailBlock').textContent}
+  Anchored At:      ${$('#detailTimestamp').textContent}
 
 CAPTURE METADATA:
-  Officer Badge:    ${record.officerId}
-  GPS Coordinates:  ${record.latitude.toFixed(4)}, ${record.longitude.toFixed(4)}
+  Officer Badge:    ${$('#detailOfficer').textContent}
+  GPS Coordinates:  ${$('#detailGps').textContent}
 
 ═══════════════════════════════════════════
   This report was generated by ChainGuard
@@ -434,12 +314,7 @@ CAPTURE METADATA:
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `chainguard-report-${record.evidenceId}.txt`;
+  a.download = `chainguard-report-${$('#detailEvidenceId').textContent}.txt`;
   a.click();
   URL.revokeObjectURL(url);
 });
-
-// ──── INIT ────
-showState('default');
-hashProgressRing.style.strokeDasharray = RING_CIRCUMFERENCE;
-hashProgressRing.style.strokeDashoffset = RING_CIRCUMFERENCE;

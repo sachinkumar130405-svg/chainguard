@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const config = require('../config');
 
 // Mock storage service that writes encrypted files to disk and
 // returns an IPFS-like CID and public URL.
@@ -55,12 +56,60 @@ async function storeToDisk(fileBuffer, { evidenceId, iv, mimeType }) {
 }
 
 /**
- * Placeholder for real IPFS storage via Pinata.
- * To implement: Use @pinata/sdk or axios to POST to https://api.pinata.cloud/pinning/pinFileToIPFS
+ * Real IPFS storage via Pinata API.
  */
 async function storeToIPFS(fileBuffer, { evidenceId, iv, mimeType }) {
-  console.warn('[STORAGE] Real IPFS storage requested but only stubbed. Check Pinata config.');
-  throw new Error('IPFS storage not fully implemented. Provide PINATA_API_KEY.');
+  const pinataJwt = process.env.PINATA_JWT;
+  if (!pinataJwt) {
+    throw new Error('IPFS storage failed: PINATA_JWT environment variable is missing.');
+  }
+
+  const formData = new FormData();
+  const blob = new Blob([fileBuffer], { type: mimeType });
+  formData.append('file', blob, `${evidenceId}.enc`);
+
+  const metadata = JSON.stringify({
+    name: `chainguard_${evidenceId}`,
+    keyvalues: { evidenceId, iv }
+  });
+  formData.append('pinataMetadata', metadata);
+
+  const options = JSON.stringify({ cidVersion: 1 });
+  formData.append('pinataOptions', options);
+
+  try {
+    const res = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${pinataJwt}`
+      },
+      body: formData
+    });
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      throw new Error(`Pinata API error (${res.status}): ${errorText}`);
+    }
+
+    const data = await res.json();
+    const storageCid = data.IpfsHash;
+    const storageUrl = `https://gateway.pinata.cloud/ipfs/${storageCid}`;
+
+    console.log(`[STORAGE] IPFS storage: pinned file ${evidenceId} to ${storageCid}`);
+
+    return {
+      evidenceId,
+      storageCid,
+      storageUrl,
+      fileSizeBytes: data.PinSize,
+      uploadedAt: new Date().toISOString(),
+      iv,
+      mimeType,
+    };
+  } catch (err) {
+    console.error('[STORAGE] IPFS pinning failed:', err);
+    throw err;
+  }
 }
 
 module.exports = {
