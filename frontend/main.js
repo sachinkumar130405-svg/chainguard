@@ -4,24 +4,25 @@
 
 // ──── DOM refs ────
 const $ = (sel) => document.querySelector(sel);
-const dropzone       = $('#dropzone');
-const fileInput      = $('#fileInput');
-const dzDefault      = $('#dzDefault');
-const dzHashing      = $('#dzHashing');
-const dzVerifying    = $('#dzVerifying');
-const hashPercent    = $('#hashPercent');
+const dropzone = $('#dropzone');
+const fileInput = $('#fileInput');
+const dzDefault = $('#dzDefault');
+const dzHashing = $('#dzHashing');
+const dzEncrypting = $('#dzEncrypting');
+const dzVerifying = $('#dzVerifying');
+const hashPercent = $('#hashPercent');
 const hashProgressRing = $('#hashProgressRing');
-const hashFileName   = $('#hashFileName');
-const hashBytes      = $('#hashBytes');
-const hashOutput     = $('#hashOutput');
-const hashValue      = $('#hashValue');
-const copyHash       = $('#copyHash');
-const resultCard     = $('#resultCard');
-const resultMatch    = $('#resultMatch');
-const resultNoMatch  = $('#resultNoMatch');
-const btnReset       = $('#btnReset');
+const hashFileName = $('#hashFileName');
+const hashBytes = $('#hashBytes');
+const hashOutput = $('#hashOutput');
+const hashValue = $('#hashValue');
+const copyHash = $('#copyHash');
+const resultCard = $('#resultCard');
+const resultMatch = $('#resultMatch');
+const resultNoMatch = $('#resultNoMatch');
+const btnReset = $('#btnReset');
 const btnDownloadReport = $('#btnDownloadReport');
-const headerTime     = $('#headerTime');
+const headerTime = $('#headerTime');
 
 // ──── CONSTANTS ────
 const RING_CIRCUMFERENCE = 2 * Math.PI * 52; // r = 52 in the SVG
@@ -155,6 +156,24 @@ async function processFile(file) {
 
   // Show hash
   dropzone.classList.remove('hashing');
+
+  // Show encrypting state
+  showState('encrypting');
+  dropzone.classList.add('encrypting');
+
+  // Perform encryption
+  try {
+    const { encryptedBlob, iv, key } = await encryptFile(file);
+    console.log(`Encrypted blob size: ${formatBytes(encryptedBlob.size)}`);
+    // Note: We don't upload the blob in the verification dashboard, but we demonstrate the client-side encryption step
+  } catch (err) {
+    console.error('Encryption error:', err);
+  }
+
+  // Small delay for UX
+  await sleep(600);
+
+  dropzone.classList.remove('encrypting');
   showState('verifying');
   dropzone.classList.add('verifying');
 
@@ -218,6 +237,32 @@ async function hashFileStreaming(file, onProgress) {
   });
 }
 
+// ──── CLIENT-SIDE ENCRYPTION ────
+async function encryptFile(file) {
+  const buffer = await file.arrayBuffer();
+
+  // Generate random 256-bit AES key and 12-byte IV
+  const key = await crypto.subtle.generateKey(
+    { name: 'AES-GCM', length: 256 },
+    true,
+    ['encrypt', 'decrypt']
+  );
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+
+  // Encrypt the buffer
+  const encryptedBuffer = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: iv },
+    key,
+    buffer
+  );
+
+  return {
+    encryptedBlob: new Blob([encryptedBuffer], { type: 'application/octet-stream' }),
+    iv: hexString(iv),
+    key: key
+  };
+}
+
 // ──── LEDGER LOOKUP (REAL BACKEND) ────
 async function verifyWithBackend(file, hash) {
   const formData = new FormData();
@@ -257,6 +302,7 @@ async function verifyWithBackend(file, hash) {
 function showState(state) {
   dzDefault.classList.add('hidden');
   dzHashing.classList.add('hidden');
+  dzEncrypting.classList.add('hidden');
   dzVerifying.classList.add('hidden');
 
   switch (state) {
@@ -264,6 +310,9 @@ function showState(state) {
       dzHashing.classList.remove('hidden');
       hashPercent.textContent = '0%';
       hashProgressRing.style.strokeDashoffset = RING_CIRCUMFERENCE;
+      break;
+    case 'encrypting':
+      dzEncrypting.classList.remove('hidden');
       break;
     case 'verifying':
       dzVerifying.classList.remove('hidden');
@@ -329,7 +378,7 @@ copyHash.addEventListener('click', async () => {
 btnReset.addEventListener('click', () => {
   hideResults();
   showState('default');
-  dropzone.classList.remove('hashing', 'verifying');
+  dropzone.classList.remove('hashing', 'encrypting', 'verifying');
   fileInput.value = '';
 
   // Scroll to dropzone

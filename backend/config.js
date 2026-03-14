@@ -18,9 +18,16 @@ module.exports = {
   port: Number(env.PORT) || 3001,
   corsOrigin: env.CORS_ORIGIN || 'http://localhost:5173',
 
-  // Blockchain / Hardhat
+  // Hardhat / Ethereum RPC
   chainRpcUrl: env.CHAIN_RPC_URL || 'http://127.0.0.1:8545',
   contractAddress: env.CONTRACT_ADDRESS || '', // populated from contracts deployment.json in practice
+
+  // Storage
+  useMockStorage: boolEnv('USE_MOCK_STORAGE', true),
+  pinata: {
+    apiKey: env.PINATA_API_KEY || '',
+    secretKey: env.PINATA_SECRET_KEY || '',
+  },
 
   // JWT auth (MVP: symmetric HS256)
   jwt: {

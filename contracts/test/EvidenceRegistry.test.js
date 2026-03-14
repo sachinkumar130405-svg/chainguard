@@ -5,7 +5,7 @@ describe('EvidenceRegistry', function () {
     const [officer, other] = await ethers.getSigners();
     const Factory = await ethers.getContractFactory('EvidenceRegistry');
     const contract = await Factory.deploy();
-    await contract.deployed();
+    await contract.waitForDeployment();
     return { contract, officer, other };
   }
 
@@ -33,6 +33,53 @@ describe('EvidenceRegistry', function () {
     await expect(
       contract.anchorEvidence(hash, 'OFFICER-1', '{}'),
     ).to.be.revertedWith('duplicate hash');
+  });
+
+  it('only authorized accounts can anchor evidence', async function () {
+    const { contract, officer, other } = await deploy();
+    const hash = ethers.keccak256(ethers.toUtf8Bytes('file2'));
+
+    // other is not authorized
+    await expect(
+      contract.connect(other).anchorEvidence(hash, 'OFFICER-2', '{}')
+    ).to.be.revertedWith('not authorized');
+
+    // authorize other
+    await contract.connect(officer).authorize(other.address);
+
+    // now other can anchor
+    await expect(
+      contract.connect(other).anchorEvidence(hash, 'OFFICER-2', '{}')
+    ).to.not.be.reverted;
+
+    // revoke authorization
+    const hash3 = ethers.keccak256(ethers.toUtf8Bytes('file3'));
+    await contract.connect(officer).revokeAuthorization(other.address);
+
+    // other can no longer anchor
+    await expect(
+      contract.connect(other).anchorEvidence(hash3, 'OFFICER-2', '{}')
+    ).to.be.revertedWith('not authorized');
+  });
+
+  it('only owner can authorize and revoke', async function () {
+    const { contract, officer, other } = await deploy();
+
+    await expect(
+      contract.connect(other).authorize(other.address)
+    ).to.be.revertedWith('only owner');
+
+    await expect(
+      contract.connect(other).revokeAuthorization(officer.address)
+    ).to.be.revertedWith('only owner');
+  });
+
+  it('owner cannot revoke themselves', async function () {
+    const { contract, officer } = await deploy();
+
+    await expect(
+      contract.connect(officer).revokeAuthorization(officer.address)
+    ).to.be.revertedWith('cannot revoke owner');
   });
 
   it('only anchoring officer can link storage', async function () {

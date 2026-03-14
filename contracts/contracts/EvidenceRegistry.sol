@@ -13,10 +13,37 @@ contract EvidenceRegistry {
     mapping(bytes32 => EvidenceRecord) private records;
     bytes32[] private hashes;
 
+    address public owner;
+    mapping(address => bool) public isAuthorized;
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "only owner");
+        _;
+    }
+
+    modifier onlyAuthorized() {
+        require(isAuthorized[msg.sender], "not authorized");
+        _;
+    }
+
+    constructor() {
+        owner = msg.sender;
+        isAuthorized[msg.sender] = true;
+    }
+
+    function authorize(address _address) external onlyOwner {
+        isAuthorized[_address] = true;
+    }
+
+    function revokeAuthorization(address _address) external onlyOwner {
+        require(_address != owner, "cannot revoke owner");
+        isAuthorized[_address] = false;
+    }
+
     event EvidenceAnchored(bytes32 indexed fileHash, address indexed officer, uint256 timestamp);
     event StorageLinked(bytes32 indexed fileHash, string storageCid);
 
-    function anchorEvidence(bytes32 fileHash, string calldata officerId, string calldata metadataJson) external {
+    function anchorEvidence(bytes32 fileHash, string calldata officerId, string calldata metadataJson) external onlyAuthorized {
         require(fileHash != bytes32(0), "fileHash required");
         require(records[fileHash].fileHash == bytes32(0), "duplicate hash");
 

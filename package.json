@@ -1,0 +1,14 @@
+{
+    "name": "chainguard-root",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+        "install:all": "npm install && cd backend && npm install && cd ../contracts && npm install && cd ../frontend && npm install",
+        "dev:backend": "cd backend && npm run dev",
+        "dev:frontend": "cd frontend && npm run dev",
+        "dev:chain": "cd contracts && npx hardhat node",
+        "test": "npm run test:backend && npm run test:contracts",
+        "test:backend": "cd backend && npm test",
+        "test:contracts": "cd contracts && npx hardhat test"
+    }
+}

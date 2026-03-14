@@ -13,7 +13,18 @@ function ensureStorageRoot() {
   }
 }
 
+// Storage service configuration.
+// By default, uses local disk mock. Set USE_MOCK_STORAGE=0 and provide Pinata keys for real IPFS.
+
 async function storeEncryptedFile(fileBuffer, { evidenceId, iv, mimeType }) {
+  if (config.useMockStorage) {
+    return await storeToDisk(fileBuffer, { evidenceId, iv, mimeType });
+  } else {
+    return await storeToIPFS(fileBuffer, { evidenceId, iv, mimeType });
+  }
+}
+
+async function storeToDisk(fileBuffer, { evidenceId, iv, mimeType }) {
   ensureStorageRoot();
 
   const hash = crypto.createHash('sha256');
@@ -30,6 +41,8 @@ async function storeEncryptedFile(fileBuffer, { evidenceId, iv, mimeType }) {
   // In real deployment, this would be an IPFS gateway URL
   const storageUrl = `https://gateway.example.invalid/ipfs/${cid}`;
 
+  console.log(`[STORAGE] Mock storage: stored file ${evidenceId} to ${filePath}`);
+
   return {
     evidenceId,
     storageCid: cid,
@@ -39,6 +52,15 @@ async function storeEncryptedFile(fileBuffer, { evidenceId, iv, mimeType }) {
     iv,
     mimeType,
   };
+}
+
+/**
+ * Placeholder for real IPFS storage via Pinata.
+ * To implement: Use @pinata/sdk or axios to POST to https://api.pinata.cloud/pinning/pinFileToIPFS
+ */
+async function storeToIPFS(fileBuffer, { evidenceId, iv, mimeType }) {
+  console.warn('[STORAGE] Real IPFS storage requested but only stubbed. Check Pinata config.');
+  throw new Error('IPFS storage not fully implemented. Provide PINATA_API_KEY.');
 }
 
 module.exports = {

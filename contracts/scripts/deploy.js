@@ -4,12 +4,13 @@ const path = require('path');
 async function main() {
   const EvidenceRegistry = await ethers.getContractFactory('EvidenceRegistry');
   const contract = await EvidenceRegistry.deploy();
-  await contract.deployed();
+  await contract.waitForDeployment();
 
-  console.log('EvidenceRegistry deployed to:', contract.address);
+  const address = await contract.getAddress();
+  console.log('EvidenceRegistry deployed to:', address);
 
   const deployment = {
-    address: contract.address,
+    address: address,
     abi: (await artifacts.readArtifact('EvidenceRegistry')).abi,
   };
 
