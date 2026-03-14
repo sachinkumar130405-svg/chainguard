@@ -2,7 +2,16 @@
  * Evidence Backend API Service
  */
 
-const BASE_URL = import.meta.env.VITE_API_URL || '';
+const BASE_URL = (() => {
+    const url = import.meta.env.VITE_API_URL;
+    if (!url) {
+        if (import.meta.env.DEV) {
+            console.info('[ChainGuard] VITE_API_URL not set — API calls will be proxied via Vite dev server.');
+        }
+        return ''; // In dev, Vite's proxy (/api → localhost:3001) handles routing
+    }
+    return url;
+})();
 const API_BASE = `${BASE_URL}/api/evidence`;
 const VERIFY_ENDPOINT = `${API_BASE}/verify`;
 

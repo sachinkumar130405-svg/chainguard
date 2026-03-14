@@ -28,8 +28,18 @@ module.exports = {
   corsOrigin: env.CORS_ORIGIN || 'http://localhost:5173',
 
   // Hardhat / Ethereum RPC
-  chainRpcUrl: env.CHAIN_RPC_URL || 'http://127.0.0.1:8545',
-  contractAddress: env.CONTRACT_ADDRESS || deployData.address || '', // populated from contracts deployment.json or .env
+  chainRpcUrl: env.CHAIN_RPC_URL || env.RPC_URL || 'http://127.0.0.1:8545',
+  // Contract address: priority is 1) CONTRACT_ADDRESS env, 2) deployment.json, 3) empty string
+  contractAddress: (() => {
+    const addr = env.CONTRACT_ADDRESS || deployData.address || '';
+    if (!addr && (env.NODE_ENV === 'production' || env.MOCK_BLOCKCHAIN !== '1')) {
+      console.warn(
+        '[ChainGuard] WARNING: contractAddress is not set. ' +
+        'Set CONTRACT_ADDRESS in your environment or run deploy.js to generate contracts/deployment.json.'
+      );
+    }
+    return addr;
+  })(),
 
   // Storage
   useMockStorage: boolEnv('USE_MOCK_STORAGE', true),

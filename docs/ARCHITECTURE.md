@@ -18,6 +18,7 @@
 | **Encryption** | AES-256-GCM (Web Crypto) | NIST-approved, authenticated encryption, built into browsers |
 | **Database** | SQLite (better-sqlite3) | Embedded, zero-config, great for MVP indexing |
 | **Testing** | Vitest + Hardhat Tests | Fast, native ESM support |
+| **Attestation** | WebAuthn / FIDO2 | Hardware-backed device binding for high-integrity evidence |
 
 ---
 
@@ -37,29 +38,29 @@
                         │                    │ Hash    │    (instant)     │
                         │                    └────┬────┘                  │
                         │                         │                       │
-                        │        ┌────────────────┼────────────────┐      │
+                        │        ┌────────────────┼────────────────┬────────────────┐      │
                         │        │                │                │      │
-                        │   ┌────▼────┐     ┌────▼────┐    ┌─────▼────┐ │
-                        │   │ GPS     │     │ NTP     │    │ Officer  │ │
-                        │   │ Coords  │     │ Synced  │    │ ID       │ │
-                        │   │         │     │ Time    │    │ (JWT)    │ │
-                        │   └────┬────┘     └────┬────┘    └─────┬────┘ │
-                        │        └────────┬──────┘───────────────┘      │
-                        │                 │                              │
-                        │          ┌──────▼──────┐                       │
-                        │          │  METADATA   │                       │
-                        │          │  BUNDLE     │                       │
-                        │          │  (JSON)     │                       │
-                        │          └──────┬──────┘                       │
-                        │                 │                              │
-                        │    ┌────────────┴────────────┐                 │
-                        │    │                         │                 │
-                        │    │  Offline?               │                 │
-                        │    │  → Queue in IndexedDB   │                 │
-                        │    │  Online?                │                 │
-                        │    │  → Send immediately     │                 │
-                        │    └────────────┬────────────┘                 │
-                        └─────────────────┼─────────────────────────────┘
+                        │   ┌────▼────┐     ┌────▼────┐    ┌─────▼────┐    ┌─────▼────┐ │
+                        │   │ GPS     │     │ NTP     │    │ Officer  │    │ Hardware │ │
+                        │   │ Coords  │     │ Synced  │    │ ID       │    │ Attest   │ │
+                        │   │         │     │ Time    │    │ (JWT)    │    │ (FIDO2)  │ │
+                        │   └────┬────┘     └────┬────┘    └─────┬────┘    └─────┬────┘ │
+                        │        └────────┬──────┘───────────────┴───────────────┘      │
+                        │                 │                                             │
+                        │          ┌──────▼──────┐                                      │
+                        │          │  METADATA   │                                      │
+                        │          │  BUNDLE     │                                      │
+                        │          │  (JSON)     │                                      │
+                        │          └──────┬──────┘                                      │
+                        │                 │                                             │
+                        │    ┌────────────┴────────────┐                                │
+                        │    │                         │                                │
+                        │    │  Offline?               │                                │
+                        │    │  → Queue in IndexedDB   │                                │
+                        │    │  Online?                │                                │
+                        │    │  → Send immediately     │                                │
+                        │    └────────────┬────────────┘                                │
+                        └─────────────────┼─────────────────────────────────────────────┘
                                           │
                         ══════════════════╪═══════════════════ NETWORK
                                           │
@@ -88,6 +89,13 @@
                         │  │ 2. Compute SHA-256                      │  │
                         │  │ 3. Query smart contract for hash match  │  │
                         │  │ 4. Return match status + metadata       │  │
+                        │  └─────────────────────────────────────────┘  │
+                        │                                               │
+                        │  POST /api/attestation/* (WebAuthn)           │
+                        │  ┌─────────────────────────────────────────┐  │
+                        │  │ 1. Device enrollment (registration)     │  │
+                        │  │ 2. Presence/signature check (auth)      │  │
+                        │  │ 3. Store hardware-bound credentials     │  │
                         │  └─────────────────────────────────────────┘  │
                         └───────────────────┬───────────────────────────┘
                                             │
@@ -168,6 +176,7 @@ chainguard/
 | `backend/` | Express REST API that mediates between clients and the blockchain/storage layers. Handles auth, evidence submission, encrypted file uploads, and verification queries. |
 | `contracts/` | Hardhat-managed Solidity project containing the `EvidenceRegistry` smart contract, deployment scripts, and contract tests. Runs on a local Hardhat Network for the MVP. |
 | `docs/` | Architectural documentation and API contracts — the "source of truth" for the system's design. |
+| **Hardware Attestation** | WebAuthn/FIDO2 integration for device-level evidence binding. Ensures evidence is captured on trusted, enrolled hardware. |
 
 ---
 
@@ -180,6 +189,7 @@ chainguard/
 | Image tampered after capture | SHA-256 computed instantly from raw buffer; any bit change produces a different hash |
 | GPS spoofing | Architecture-ready for ZKP location proofs (stretch goal) |
 | Man-in-the-middle interception | Client-side hashing + AES-256-GCM encryption before transmission |
+| Spoofed device capture | Hardware Attestation (FIDO2) proves capture occurred on an enrolled device |
 | Unauthorized submissions | JWT-based officer authentication; contract enforces `onlyAuthorized` |
 | On-chain data exposure | Only hashes stored on-chain — never the image or raw GPS |
 | Storage tampering | IPFS content-addressing — CID changes if content changes |
@@ -205,10 +215,14 @@ Raw Image → AES-256-GCM Encrypt (client-side key) → Encrypted Blob → IPFS 
 - GPS coordinates are fed into a **ZK-SNARK circuit** that proves "this location is within jurisdiction X" without revealing the exact coordinates.
 - The proof is submitted alongside the hash; the smart contract verifies the proof on-chain.
 
-### Hardware Attestation
-- On supported devices, the **Secure Enclave** (iOS) or **Titan M** (Android) generates a hardware-bound signing key.
-- Each evidence submission is signed with the hardware key — proving the image came from a specific physical device.
-- The backend verifies the attestation certificate chain before anchoring.
+### Hardware Attestation (Implemented)
+- The **WebAuthn API** is used to enroll devices with hardware-backed credentials.
+- Each evidence submission session is verified via a FIDO2 authentication challenge.
+- Proves the capture session originated from a specific physical device enrolled by the officer.
+- Integrated into the `/api/attestation/*` backend routes.
+
+### Zero-Knowledge Proofs (Location Privacy)
+...
 
 ---
 

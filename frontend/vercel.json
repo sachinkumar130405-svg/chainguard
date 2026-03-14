@@ -1,6 +1,12 @@
 {
     "cleanUrls": true,
     "trailingSlash": false,
+    "build": {
+        "env": {
+            "VITE_API_URL": "@vite_api_url",
+            "VITE_CONTRACT_ADDRESS": "@vite_contract_address"
+        }
+    },
     "rewrites": [
         {
             "source": "/capture/(.*)",

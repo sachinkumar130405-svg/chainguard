@@ -200,6 +200,15 @@ Content-Type: multipart/form-data
 |---|---|---|---|
 | `file` | binary | ✅ | The original (unencrypted) media file to verify |
 
+#### Response Data Fields (Verification)
+
+| Field | Type | Description |
+|---|---|---|
+| `computedHash` | string | The SHA-256 fingerprint computed from the uploaded file. |
+| `match` | boolean | True if the hash exists on the blockchain. |
+| `metadataValid` | boolean | True if the GPS metadata integrity check matches the anchored `gpsHash`. |
+| `record` | object | The full evidence record (if `match` is true). |
+
 #### Responses
 
 **`200 OK`** — Hash found on the blockchain. ✅ **MATCH**
@@ -211,6 +220,7 @@ Content-Type: multipart/form-data
   "data": {
     "computedHash": "a1b2c3d4e5f6...64_hex_chars",
     "match": true,
+    "metadataValid": true,
     "record": {
       "evidenceId": "ev_a1b2c3d4",
       "fileHash": "a1b2c3d4e5f6...64_hex_chars",
@@ -402,3 +412,92 @@ All errors follow a consistent envelope:
 | `POST /upload` | 10 req/min per officer |
 | `POST /verify` | 60 req/min per IP |
 | `GET /evidence` | 120 req/min per token |
+
+---
+
+### 6. Hardware Attestation
+
+These endpoints handle FIDO2/WebAuthn device registration and authentication for high-integrity evidence capture.
+
+#### `POST /api/attestation/register/options`
+
+**Purpose:** Generate WebAuthn registration options for device enrollment.
+
+- **Auth:** Required (JWT)
+- **Response Data (`200 OK`):**
+  ```json
+  {
+    "success": true,
+    "data": {
+      "rp": { "name": "ChainGuard", "id": "localhost" },
+      "user": { "id": "...", "name": "officer_badge", "displayName": "officer_badge" },
+      "challenge": "...",
+      "pubKeyCredParams": [...],
+      "timeout": 60000,
+      "attestation": "direct"
+    }
+  }
+  ```
+
+#### `POST /api/attestation/register/verify`
+
+**Purpose:** Verify a WebAuthn registration response and store the credential.
+
+- **Auth:** Required (JWT)
+- **Request Body:**
+  ```json
+  {
+    "challengeId": "uuid",
+    "credential": { ...WebAuthn_Credential_Object... }
+  }
+  ```
+- **Response:** `201 Created` on success.
+
+#### `POST /api/attestation/authenticate/options`
+
+**Purpose:** Generate WebAuthn authentication options (challenge for signing).
+
+- **Auth:** Required (JWT)
+- **Response Data (`200 OK`):**
+  ```json
+  {
+    "success": true,
+    "data": {
+      "challenge": "...",
+      "timeout": 60000,
+      "userVerification": "required",
+      "allowCredentials": [...]
+    }
+  }
+  ```
+
+#### `POST /api/attestation/authenticate/verify`
+
+**Purpose:** Verify a WebAuthn authentication assertion (device signature).
+
+- **Auth:** Required (JWT)
+- **Request Body:**
+  ```json
+  {
+    "challengeId": "uuid",
+    "assertion": { ...WebAuthn_Assertion_Object... }
+  }
+  ```
+- **Response:** `200 OK` on success.
+
+#### `GET /api/attestation/devices`
+
+**Purpose:** List all registered devices for the authenticated officer.
+
+- **Auth:** Required (JWT)
+- **Response Data (`200 OK`):**
+  ```json
+  {
+    "success": true,
+    "data": {
+      "devices": [
+        { "credentialID": "...", "counter": 0, "transports": ["usb", "nfc", "ble", "internal"] }
+      ]
+    }
+  }
+  ```

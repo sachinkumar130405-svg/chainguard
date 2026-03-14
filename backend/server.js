@@ -26,7 +26,11 @@ if (config.enableRequestLogging) {
 }
 
 app.get('/api/health', (req, res) => {
-  res.status(200).json({ status: 'ok', env: config.env });
+  res.status(200).json({
+    status: 'ok',
+    version: require('./package.json').version,
+    timestamp: new Date().toISOString()
+  });
 });
 
 app.use('/api/auth', authRoutes);

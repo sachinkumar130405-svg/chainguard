@@ -16,6 +16,17 @@ try {
     : '';
 } catch (e) { }
 
+// ──── ENVIRONMENT VALIDATION ────
+// Throw early in production if VITE_API_URL is not configured so there is
+// never a silent failure where API calls silently hit the wrong origin.
+if (import.meta.env.PROD && !import.meta.env.VITE_API_URL) {
+  throw new Error(
+    '[ChainGuard] VITE_API_URL is not set. ' +
+    'Set this environment variable on your Vercel project to point at the Railway backend, ' +
+    'e.g. https://chainguard-backend.up.railway.app'
+  );
+}
+
 // Fallback to fetch deployment.json if available
 if (!contractAddress) {
   fetch('/contracts/deployment.json')

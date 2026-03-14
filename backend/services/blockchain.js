@@ -82,7 +82,7 @@ async function anchorEvidence({ fileHash, metadata, officerId }) {
   const metadataStr = JSON.stringify(metadata || {});
   const gpsHash = ethers.keccak256(ethers.toUtf8Bytes(metadataStr));
 
-  const tx = await c.anchorEvidence(hashBytes32, officerId, gpsHash);
+  const tx = await c.anchorEvidence(hashBytes32, gpsHash);
   const receipt = await tx.wait();
 
   const block = await provider.getBlock(receipt.blockNumber);
